@@ -4,6 +4,7 @@
 WitherTorch 是一個 Minecraft 伺服器的開服軟體
 
 其搭載的預設伺服器類別實現(也就是此存放庫的內容)可供第三方開發者使用
+[核心程式庫 (WitherTorch.Core)](https://github.com/WitherTorch/WitherTorch.Core)<br/>
 
 [Nuget](https://www.nuget.org/packages/WitherTorch.Core.Servers) | [Discord](https://discord.gg/F7YNJ5m) | [License](LICENSE)
 
@@ -12,6 +13,7 @@ WitherTorch 是一個 Minecraft 伺服器的開服軟體
 <br/>
 相依的套件有:
 <ul>
-  <li><a href="https://github.com/JamesNK/Newtonsoft.Json">Newtonsoft.Json</a> (>= 13.0.1)</li>
-  <li><a href="https://github.com/aaubry/YamlDotNet">YamlDotNet</a> (>= 13.0.1)</li>
+  <li><a href="https://github.com/WitherTorch/WitherTorch.Core">WitherTorch.Core</a></li>
+  <li><a href="https://github.com/JamesNK/Newtonsoft.Json">Newtonsoft.Json</a></li>
+  <li><a href="https://github.com/aaubry/YamlDotNet">YamlDotNet</a></li>
 </ul>
