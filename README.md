@@ -3,10 +3,9 @@
 
 WitherTorch 是一個 Minecraft 伺服器的開服軟體
 
-其搭載的預設伺服器類別實現(也就是此存放庫的內容)可供第三方開發者使用
-[核心程式庫 (WitherTorch.Core)](https://github.com/WitherTorch/WitherTorch.Core)<br/>
+其搭載的預設伺服器類別實現(也就是此存放庫的內容)需要與[核心程式庫](https://github.com/WitherTorch/WitherTorch.Core)一起使用<br/>
 
-[Nuget](https://www.nuget.org/packages/WitherTorch.Core.Servers) | [Discord](https://discord.gg/F7YNJ5m) | [License](LICENSE)
+[Nuget](https://www.nuget.org/packages/WitherTorch.Core.Servers) | [Discord](https://discord.gg/F7YNJ5m) | [Wiki](https://github.com/WitherTorch/WitherTorch.Core/wiki/) | [License](LICENSE)
 
 ## 適用框架和相依的套件
 此程式庫有 .NET Framework 4.7.2 和 .NET 5.0 兩種版本。<br/>
