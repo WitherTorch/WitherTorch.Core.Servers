@@ -1,0 +1,3 @@
+[submodule "WitherTorch.Core"]
+	path = WitherTorch.Core
+	url = https://github.com/WitherTorch/WitherTorch.Core.git
