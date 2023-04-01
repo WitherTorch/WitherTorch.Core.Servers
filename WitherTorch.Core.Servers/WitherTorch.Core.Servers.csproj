@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
+		<GlobalUsings>false</GlobalUsings>
 		<TargetFrameworks>net472;net5</TargetFrameworks>
 		<Platforms>AnyCPU;x64;ARM64</Platforms>
 		<Configurations>Debug;Release</Configurations>

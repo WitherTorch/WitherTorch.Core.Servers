@@ -1,4 +1,6 @@
-﻿namespace WitherTorch.Core.Servers
+﻿using WitherTorch.Core;
+
+namespace WitherTorch.Core.Servers
 {
     public class SpigotBuildToolsStatus : ProcessStatus
     {

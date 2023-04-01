@@ -6,14 +6,12 @@ using System.Diagnostics;
 using System.IO;
 #if NET472
 using System.Net;
-using System.Runtime.CompilerServices;
+using System.Text;
 #elif NET5_0
 using System.Net.Http;
 #endif
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using WitherTorch.Core.Utils;
+using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
 {
