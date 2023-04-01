@@ -55,4 +55,8 @@
 		<None Include="Resources\withertorch_core_128.png" Pack="true" PackagePath="" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <ProjectReference Include="..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
+	</ItemGroup>
+
 </Project>
