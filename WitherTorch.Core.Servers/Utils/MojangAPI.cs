@@ -1,10 +1,10 @@
 ﻿using System;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.IO;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -29,7 +29,7 @@ namespace WitherTorch.Core.Servers.Utils
                 return versions;
             }
         }
-        
+
         private static string[] javaDedicatedVersions;
         internal static string[] JavaDedicatedVersions
         {

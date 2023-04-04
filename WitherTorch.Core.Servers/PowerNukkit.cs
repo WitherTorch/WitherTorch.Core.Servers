@@ -1,27 +1,25 @@
-﻿using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Xml;
-using System.Collections.Generic;
 using System.Net;
-using System.ComponentModel;
+using System.Xml;
+using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
 {
     public class PowerNukkit : Server<PowerNukkit>
     {
-        private const string UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36";
         private const string manifestListURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/maven-metadata.xml";
         private const string downloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
-        private static Dictionary<string, string> versionDict = new Dictionary<string, string>();
+        private static readonly Dictionary<string, string> versionDict = new Dictionary<string, string>();
         private static string[] versions;
         private bool _isStarted;
         private string versionString;
         private SystemProcess process;
         private JavaRuntimeEnvironment environment;
-        private IPropertyFile[] propertyFiles = new IPropertyFile[2];
+        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[2];
 
         static PowerNukkit()
         {

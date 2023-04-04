@@ -20,7 +20,9 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public class Fabric : AbstractJavaEditionServer<Fabric>
     {
+#if NET472
         private const string UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36";
+#endif
         private const string manifestListURL = "https://meta.fabricmc.net/v2/versions/game";
         private const string manifestListURLForLoader = "https://meta.fabricmc.net/v2/versions/loader";
         internal static string[] versions;
@@ -30,7 +32,7 @@ namespace WitherTorch.Core.Servers
         private string versionString;
         private string fabricVersion;
         private JavaRuntimeEnvironment environment;
-        IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
         static Fabric()

@@ -1,12 +1,12 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using WitherTorch.Core.Utils;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -21,7 +21,7 @@ namespace WitherTorch.Core.Servers
         private const string downloadURL = "https://api.papermc.io/v2/projects/paper/versions/{0}/builds/{1}/downloads/{2}";
 
         protected bool _isStarted;
-        IPropertyFile[] propertyFiles = new IPropertyFile[4];
+        readonly IPropertyFile[] propertyFiles = new IPropertyFile[4];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
         public YamlPropertyFile BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
         public YamlPropertyFile SpigotYMLFile => propertyFiles[2] as YamlPropertyFile;

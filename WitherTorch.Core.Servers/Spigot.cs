@@ -1,7 +1,7 @@
-﻿using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
+using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -12,7 +12,7 @@ namespace WitherTorch.Core.Servers
     public class Spigot : AbstractJavaEditionServer<Spigot>
     {
         protected bool _isStarted;
-        IPropertyFile[] propertyFiles = new IPropertyFile[3];
+        readonly IPropertyFile[] propertyFiles = new IPropertyFile[3];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
         public YamlPropertyFile BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
         public YamlPropertyFile SpigotYMLFile => propertyFiles[2] as YamlPropertyFile;

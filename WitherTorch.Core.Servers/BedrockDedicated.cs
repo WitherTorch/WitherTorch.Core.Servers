@@ -2,9 +2,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
 using System.Net;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 namespace WitherTorch.Core.Servers
 {
@@ -20,7 +20,7 @@ namespace WitherTorch.Core.Servers
 
         protected SystemProcess process;
         private string versionString;
-        private IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         private static string[] versions;
 
         static BedrockDedicated()

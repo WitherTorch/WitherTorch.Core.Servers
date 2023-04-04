@@ -1,11 +1,11 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using WitherTorch.Core.Utils;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -25,7 +25,7 @@ namespace WitherTorch.Core.Servers
         protected SystemProcess process;
         private string versionString;
         private JavaRuntimeEnvironment environment;
-        IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
         private void InstallSoftware()
@@ -59,7 +59,7 @@ namespace WitherTorch.Core.Servers
                         sha1 = null;
                     DownloadHelper helper = new DownloadHelper(
                         task: installingTask, webClient: client, downloadUrl: downloadURLToken.ToString(),
-                        filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionString + ".jar"), 
+                        filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionString + ".jar"),
                         hash: sha1, hashMethod: DownloadHelper.HashMethod.Sha1);
                     helper.Start();
                 }

@@ -1,9 +1,9 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
-using System.ComponentModel;
 using System.Net;
+using System.Text;
 using System.Xml;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -36,7 +36,7 @@ namespace WitherTorch.Core.Servers.Utils
             CraftBukkit,
             Spigot
         }
-        private bool CheckUpdate(out int updatedVersion)
+        private static bool CheckUpdate(out int updatedVersion)
         {
             int version = -1;
             int nowVersion;

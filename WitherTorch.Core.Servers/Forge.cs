@@ -1,5 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -7,8 +6,9 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Xml;
-using WitherTorch.Core.Utils;
+using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -29,7 +29,7 @@ namespace WitherTorch.Core.Servers
         private string versionString;
         private string forgeVersion;
         private JavaRuntimeEnvironment environment;
-        IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
         private static MojangAPI.VersionInfo mc1_3_2, mc1_5_2;
 
@@ -323,7 +323,7 @@ namespace WitherTorch.Core.Servers
             return versions;
         }
 
-        public string[] GetForgeVersionsFromMCVersion(string mcVersion)
+        public static string[] GetForgeVersionsFromMCVersion(string mcVersion)
         {
             if (versionDict is null)
             {

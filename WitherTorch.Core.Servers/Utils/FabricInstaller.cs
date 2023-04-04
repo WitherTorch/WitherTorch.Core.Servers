@@ -1,7 +1,7 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.ComponentModel;
 using System.Net;
 using System.Text;
 using System.Xml;
@@ -36,10 +36,9 @@ namespace WitherTorch.Core.Servers.Utils
             CraftBukkit,
             Spigot
         }
-        private bool CheckUpdate(out string updatedVersion)
+        private static bool CheckUpdate(out string updatedVersion)
         {
-            string version = null;
-            string nowVersion = null;
+            string version = null, nowVersion;
             if (workingDirectoryInfo.Exists)
             {
                 if (buildToolVersionInfo.Exists && buildToolFileInfo.Exists)
@@ -249,7 +248,7 @@ namespace WitherTorch.Core.Servers.Utils
             };
         }
 
-        private void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricVersion)
+        private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricVersion)
         {
             InstallTask installTask = task;
             FabricInstallerStatus installStatus = status;

@@ -1,6 +1,4 @@
-﻿using WitherTorch.Core;
-
-namespace WitherTorch.Core.Servers
+﻿namespace WitherTorch.Core.Servers
 {
     public class SpigotBuildToolsStatus : ProcessStatus
     {
