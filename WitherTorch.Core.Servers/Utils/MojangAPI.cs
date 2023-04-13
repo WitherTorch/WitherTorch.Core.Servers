@@ -43,25 +43,34 @@ namespace WitherTorch.Core.Servers.Utils
             }
         }
 
+        [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
+        private class VersionManifestJSONModel
+        {
+            [JsonProperty("versions", ItemIsReference = true)]
+            public VersionInfo[] Versions;
+        }
+
+        [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
         public sealed class VersionInfo : IComparable<string>, IComparable<VersionInfo>
         {
-            public string ManifestURL { get; }
-            public DateTime ReleaseDate { get; }
-            public string VersionType { get; }
+            [JsonProperty("id")]
+            public string Id { get; set; }
 
-            public VersionInfo(string versionType, in DateTime releaseDate, string manifestURL)
-            {
-                VersionType = versionType;
-                ReleaseDate = releaseDate;
-                ManifestURL = manifestURL;
-            }
+            [JsonProperty("url")]
+            public string ManifestURL { get; set; }
+
+            [JsonProperty("releaseTime")]
+            public DateTime ReleaseTime { get; set; }
+
+            [JsonProperty("type")]
+            public string Type { get; set; }
 
             int IComparable<string>.CompareTo(string other)
             {
                 if (other is null) return 0;
                 else if (VersionDictionary.ContainsKey(other))
                 {
-                    return ReleaseDate.CompareTo(VersionDictionary[other].ReleaseDate);
+                    return ReleaseTime.CompareTo(VersionDictionary[other].ReleaseTime);
                 }
                 return 0;
             }
@@ -69,7 +78,7 @@ namespace WitherTorch.Core.Servers.Utils
             int IComparable<VersionInfo>.CompareTo(VersionInfo other)
             {
                 if (other is null) return 1;
-                else return ReleaseDate.CompareTo(other.ReleaseDate);
+                else return ReleaseTime.CompareTo(other.ReleaseTime);
             }
 
             public static bool operator <(VersionInfo a, VersionInfo b)
@@ -106,18 +115,17 @@ namespace WitherTorch.Core.Servers.Utils
         }
         public static void LoadVersionList()
         {
-            Dictionary<string, VersionInfo> versionPairs = new Dictionary<string, VersionInfo>();
             try
             {
                 string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
                 if (manifestString != null)
                 {
-                    JObject manifestJSON;
+                    VersionManifestJSONModel manifestJSON;
                     using (JsonTextReader reader = new JsonTextReader(new StringReader(manifestString)))
                     {
                         try
                         {
-                            manifestJSON = GlobalSerializers.JsonSerializer.Deserialize(reader) as JObject;
+                            manifestJSON = GlobalSerializers.JsonSerializer.Deserialize<VersionManifestJSONModel>(reader);
                         }
                         catch (Exception)
                         {
@@ -127,55 +135,52 @@ namespace WitherTorch.Core.Servers.Utils
                     }
                     if (manifestJSON != null)
                     {
-                        foreach (JToken token in manifestJSON.GetValue("versions"))
+                        int count = manifestJSON.Versions.Length;
+                        if (count > 0)
                         {
-                            if (token is JObject tokenObj)
+                            Dictionary<string, VersionInfo> versionPairs = new Dictionary<string, VersionInfo>(count);
+                            string[] versions = new string[count];
+                            string[] versions2 = new string[count];
+                            int j = 0, k = 0;
+                            for (int i = 0; i < count; i++)
                             {
-                                string id = null, url = null, type = null, releaseTime = null;
-                                foreach (var prop in tokenObj)
+                                VersionInfo versionInfo = manifestJSON.Versions[i];
+                                if (IsValidTime(versionInfo.ReleaseTime))
                                 {
-                                    switch (prop.Key)
-                                    {
-                                        case "id":
-                                            id = prop.Value.ToString();
-                                            break;
-                                        case "url":
-                                            url = prop.Value.ToString();
-                                            break;
-                                        case "type":
-                                            type = prop.Value.ToString();
-                                            break;
-                                        case "releaseTime":
-                                            releaseTime = prop.Value.ToString();
-                                            break;
-                                        default:
-                                            continue;
-                                    }
-                                }
-                                if (id is object && url is object && type is object && releaseTime is object &&
-                                    DateTime.TryParse(releaseTime, out DateTime trueReleaseTime) && IsValidTime(trueReleaseTime))
-                                {
-                                    versionPairs.Add(id, new VersionInfo(type, trueReleaseTime, url));
+                                    string id = versionInfo.Id;
+                                    versionPairs.Add(id, versionInfo);
+                                    versions[j++] = id;
+                                    if (IsVanillaHasServer(versionInfo))
+                                        versions2[k++] = id;
                                 }
                             }
+                            VersionDictionary = versionPairs;
+                            MojangAPI.versions = Subarray(versions, j);
+                            javaDedicatedVersions = Subarray(versions2, k);
+                        }
+                        else
+                        {
+                            VersionDictionary = null;
+                            versions = null;
+                            javaDedicatedVersions = null;
                         }
                     }
                 }
             }
             catch (Exception)
             {
+            }
+            GC.Collect(0, GCCollectionMode.Optimized);
+        }
 
-            }
-            VersionDictionary = versionPairs;
-            if (versionPairs.Count > 0)
+        private static string[] Subarray(string[] original, int count)
+        {
+            string[] result = new string[count];
+            for (int i = 0; i < count; i++)
             {
-                versions = versionPairs.Keys.ToArray();
-                javaDedicatedVersions = versionPairs.Where(kp => IsVanillaHasServer(kp.Value)).Select(kp => kp.Key).ToArray();
+                result[i] = original[i];
             }
-            else
-            {
-                versions = javaDedicatedVersions = Array.Empty<string>();
-            }
+            return result;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -186,9 +191,9 @@ namespace WitherTorch.Core.Servers.Utils
             return month != 4 || day != 1; // 過濾愚人節版本
         }
 
-        private static bool IsVanillaHasServer(in VersionInfo versionInfo)
+        private static bool IsVanillaHasServer(VersionInfo versionInfo)
         {
-            DateTime time = versionInfo.ReleaseDate;
+            DateTime time = versionInfo.ReleaseTime;
             int year = time.Year;
             int month = time.Month;
             int day = time.Day;
@@ -221,7 +226,7 @@ namespace WitherTorch.Core.Servers.Utils
                 success = VersionDictionary.TryGetValue(y, out VersionInfo infoB);
                 if (success)
                 {
-                    return infoA.ReleaseDate.CompareTo(infoB.ReleaseDate);
+                    return infoA.ReleaseTime.CompareTo(infoB.ReleaseTime);
                 }
                 else
                 {
