@@ -40,6 +40,8 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "paper";
         }
 
+        public override string ServerVersion => versionString;
+
         private static void Initialize()
         {
             if (mc1_19 is null) MojangAPI.VersionDictionary?.TryGetValue("1.19", out mc1_19);

@@ -40,6 +40,13 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "forge";
         }
 
+        public override string ServerVersion => versionString;
+
+        /// <summary>
+        /// 取得 Forge 的版本號
+        /// </summary>
+        public string ForgeVersion => forgeVersion;
+
         private static void Initialize()
         {
             if (mc1_3_2 is null) MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out mc1_3_2);

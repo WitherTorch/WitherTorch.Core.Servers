@@ -27,6 +27,8 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "spigot";
         }
 
+        public override string ServerVersion => versionString;
+
         InstallTask installingTask;
         private void InstallSoftware()
         {

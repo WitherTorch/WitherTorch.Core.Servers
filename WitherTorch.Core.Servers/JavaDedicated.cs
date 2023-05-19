@@ -28,6 +28,8 @@ namespace WitherTorch.Core.Servers
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
+        public override string ServerVersion => versionString;
+
         private void InstallSoftware()
         {
             InstallTask installingTask = new InstallTask(this);

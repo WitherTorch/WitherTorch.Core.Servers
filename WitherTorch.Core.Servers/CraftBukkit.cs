@@ -26,6 +26,8 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "craftbukkit";
         }
 
+        public override string ServerVersion => versionString;
+
         InstallTask installingTask;
         private void InstallSoftware()
         {

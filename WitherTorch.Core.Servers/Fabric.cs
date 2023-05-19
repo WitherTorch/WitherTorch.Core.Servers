@@ -41,6 +41,8 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "fabric";
         }
 
+        public override string ServerVersion => versionString;
+
         private static void LoadVersionList()
         {
             List<string> versionList = new List<string>();

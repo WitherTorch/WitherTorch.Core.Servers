@@ -86,6 +86,8 @@ namespace WitherTorch.Core.Servers
 #endif
         }
 
+        public override string ServerVersion => versionString;
+
         public override bool ChangeVersion(int versionIndex)
         {
             if (versions is null) LoadVersionList();

@@ -26,6 +26,8 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "powerNukkit";
         }
 
+        public override string ServerVersion => versionString;
+
         private static void LoadVersionList()
         {
             string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
