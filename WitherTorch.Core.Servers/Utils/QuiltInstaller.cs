@@ -115,7 +115,7 @@ namespace WitherTorch.Core.Servers.Utils
         public void Install(InstallTask task, string version)
         {
             InstallTask installTask = task;
-            FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
+            QuiltInstallerStatus status = new QuiltInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
             installTask.ChangeStatus(status);
             bool isStop = false;
             void StopRequestedHandler(object sender, EventArgs e)
