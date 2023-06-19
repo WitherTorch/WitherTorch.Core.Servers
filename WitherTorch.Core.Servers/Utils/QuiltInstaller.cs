@@ -15,7 +15,7 @@ namespace WitherTorch.Core.Servers.Utils
     {
         private const string manifestListURL = "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/maven-metadata.xml";
         private const string downloadURL = "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/{0}/quilt-installer-{0}.jar";
-        private readonly static DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTCore.FabricInstallerPath));
+        private readonly static DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTCore.QuiltInstallerPath));
         private readonly static FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./quilt-installer.jar"));
         private readonly static FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./quilt-installer.version"));
         private event EventHandler UpdateStarted;
@@ -154,7 +154,7 @@ namespace WitherTorch.Core.Servers.Utils
             }
         }
 
-        public void Install(InstallTask task, string minecraftVersion, string fabricVersion)
+        public void Install(InstallTask task, string minecraftVersion, string quiltVersion)
         {
             InstallTask installTask = task;
             QuiltInstallerStatus status = new QuiltInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
@@ -184,7 +184,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     installTask.ChangePercentage(50);
                     installTask.OnStatusChanged();
-                    DoInstall(installTask, status, minecraftVersion, fabricVersion);
+                    DoInstall(installTask, status, minecraftVersion, quiltVersion);
                 };
                 Update(installTask, newVersion);
             }
@@ -192,7 +192,7 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 installTask.ChangePercentage(50);
                 installTask.OnStatusChanged();
-                DoInstall(installTask, status, minecraftVersion, fabricVersion);
+                DoInstall(installTask, status, minecraftVersion, quiltVersion);
             }
         }
 
@@ -248,7 +248,7 @@ namespace WitherTorch.Core.Servers.Utils
             };
         }
 
-        private static void DoInstall(InstallTask task, QuiltInstallerStatus status, string minecraftVersion, string fabricVersion)
+        private static void DoInstall(InstallTask task, QuiltInstallerStatus status, string minecraftVersion, string quiltVersion)
         {
             InstallTask installTask = task;
             QuiltInstallerStatus installStatus = status;
@@ -257,7 +257,7 @@ namespace WitherTorch.Core.Servers.Utils
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} {2} --install-dir=\"{3}\" -download-server", buildToolFileInfo.FullName, minecraftVersion, fabricVersion, installTask.Owner.ServerDirectory),
+                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} {2} --install-dir=\"{3}\" -download-server", buildToolFileInfo.FullName, minecraftVersion, quiltVersion, installTask.Owner.ServerDirectory),
                 WorkingDirectory = workingDirectoryInfo.FullName,
                 CreateNoWindow = true,
                 ErrorDialog = true,
