@@ -205,7 +205,7 @@ namespace WitherTorch.Core.Servers.Utils
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} --install-dir=\"{2}\" -download-server", buildToolFileInfo.FullName, version, installTask.Owner.ServerDirectory),
+                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} --install-dir=\\\"{2}\\\" --download-server", buildToolFileInfo.FullName, version, installTask.Owner.ServerDirectory),
                 WorkingDirectory = workingDirectoryInfo.FullName,
                 CreateNoWindow = true,
                 ErrorDialog = true,
@@ -257,7 +257,7 @@ namespace WitherTorch.Core.Servers.Utils
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} {2} --install-dir=\"{3}\" -download-server", buildToolFileInfo.FullName, minecraftVersion, quiltVersion, installTask.Owner.ServerDirectory),
+                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} {2} --install-dir=\\\"{3}\\\" --download-server", buildToolFileInfo.FullName, minecraftVersion, quiltVersion, installTask.Owner.ServerDirectory),
                 WorkingDirectory = workingDirectoryInfo.FullName,
                 CreateNoWindow = true,
                 ErrorDialog = true,

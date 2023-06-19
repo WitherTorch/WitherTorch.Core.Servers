@@ -200,7 +200,7 @@ namespace WitherTorch.Core.Servers
                     if (token is JObject tokenObject && tokenObject.TryGetValue("version", out JToken versionToken) && versionToken.Type == JTokenType.String)
                     {
                         string versionString = versionToken.ToString();
-                        if (tokenObject.TryGetValue("stable", out JToken loaderVersionToken) && loaderVersionToken.Type == JTokenType.Boolean && loaderVersionToken.Value<bool>() == true)
+                        if (Version.TryParse(versionString, out _))
                         {
                             result = versionString;
                             break;
