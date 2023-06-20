@@ -31,7 +31,7 @@ namespace WitherTorch.Core.Servers
 
         protected SystemProcess process;
         private string versionString;
-        private string quiltVersion;
+        private string quiltLoaderVersion;
         private JavaRuntimeEnvironment environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
@@ -103,7 +103,7 @@ namespace WitherTorch.Core.Servers
         {
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
                 if (manifestString is null)
                     return loaderVersions = null;
                 else
@@ -115,7 +115,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private static string GetLatestStableQuiltLoaderVersion()
+        public static string GetLatestStableQuiltLoaderVersion()
         {
             VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
             if (loaderVersions is object)
@@ -142,7 +142,7 @@ namespace WitherTorch.Core.Servers
             {
                 versionString = versions[versionIndex];
                 BuildVersionInfo();
-                this.quiltVersion = quiltVersion;
+                this.quiltLoaderVersion = quiltVersion;
                 _cache = null;
                 InstallSoftware(quiltVersion);
                 return true;
@@ -170,8 +170,13 @@ namespace WitherTorch.Core.Servers
         string _cache;
         public override string GetReadableVersion()
         {
-            return _cache ?? (_cache = versionString + "-" + quiltVersion);
+            return _cache ?? (_cache = versionString + "-" + quiltLoaderVersion);
         }
+
+        /// <summary>
+        /// 取得 Quilt Loader 的版本號
+        /// </summary>
+        public string QuiltLoaderVersion => quiltLoaderVersion;
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
         {
@@ -287,10 +292,10 @@ namespace WitherTorch.Core.Servers
             {
                 JsonPropertyFile serverInfoJson = ServerInfoJson;
                 versionString = serverInfoJson["version"].ToString();
-                JToken forgeVerNode = serverInfoJson["fabric-version"];
-                if (forgeVerNode?.Type == JTokenType.String)
+                JToken quiltVerNode = serverInfoJson["quilt-version"];
+                if (quiltVerNode?.Type == JTokenType.String)
                 {
-                    quiltVersion = forgeVerNode.ToString();
+                    quiltLoaderVersion = quiltVerNode.ToString();
                 }
                 else
                 {
@@ -328,7 +333,7 @@ namespace WitherTorch.Core.Servers
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
             serverInfoJson["version"] = versionString;
-            serverInfoJson["fabric-version"] = quiltVersion;
+            serverInfoJson["quilt-version"] = quiltLoaderVersion;
             if (environment != null)
             {
                 serverInfoJson["java.path"] = environment.JavaPath;

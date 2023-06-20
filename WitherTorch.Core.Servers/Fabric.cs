@@ -34,7 +34,7 @@ namespace WitherTorch.Core.Servers
 
         protected SystemProcess process;
         private string versionString;
-        private string fabricVersion;
+        private string fabricLoaderVersion;
         private JavaRuntimeEnvironment environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
@@ -106,7 +106,7 @@ namespace WitherTorch.Core.Servers
         {
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
                 if (manifestString is null)
                     return loaderVersions = null;
                 else
@@ -118,7 +118,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private static string GetLatestStableFabricLoaderVersion()
+        public static string GetLatestStableFabricLoaderVersion()
         {
             VersionStruct[] loaderVersions = Fabric.loaderVersions ?? LoadFabricLoaderVersions();
             if (loaderVersions is object)
@@ -145,7 +145,7 @@ namespace WitherTorch.Core.Servers
             {
                 versionString = versions[versionIndex];
                 BuildVersionInfo();
-                this.fabricVersion = fabricVersion;
+                this.fabricLoaderVersion = fabricVersion;
                 _cache = null;
                 InstallSoftware(fabricVersion);
                 return true;
@@ -173,8 +173,13 @@ namespace WitherTorch.Core.Servers
         string _cache;
         public override string GetReadableVersion()
         {
-            return _cache ?? (_cache = versionString + "-" + fabricVersion);
+            return _cache ?? (_cache = versionString + "-" + fabricLoaderVersion);
         }
+
+        /// <summary>
+        /// 取得 Fabric Loader 的版本號
+        /// </summary>
+        public string FabricLoaderVersion => fabricLoaderVersion;
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
         {
@@ -290,10 +295,10 @@ namespace WitherTorch.Core.Servers
             {
                 JsonPropertyFile serverInfoJson = ServerInfoJson;
                 versionString = serverInfoJson["version"].ToString();
-                JToken forgeVerNode = serverInfoJson["fabric-version"];
-                if (forgeVerNode?.Type == JTokenType.String)
+                JToken fabricVerNode = serverInfoJson["fabric-version"];
+                if (fabricVerNode?.Type == JTokenType.String)
                 {
-                    fabricVersion = forgeVerNode.ToString();
+                    fabricLoaderVersion = fabricVerNode.ToString();
                 }
                 else
                 {
@@ -331,7 +336,7 @@ namespace WitherTorch.Core.Servers
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
             serverInfoJson["version"] = versionString;
-            serverInfoJson["fabric-version"] = fabricVersion;
+            serverInfoJson["fabric-version"] = fabricLoaderVersion;
             if (environment != null)
             {
                 serverInfoJson["java.path"] = environment.JavaPath;
