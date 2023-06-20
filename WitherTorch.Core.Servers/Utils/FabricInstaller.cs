@@ -112,48 +112,6 @@ namespace WitherTorch.Core.Servers.Utils
         }
         public delegate void UpdateProgressEventHandler(int progress);
 
-        public void Install(InstallTask task, string version)
-        {
-            InstallTask installTask = task;
-            FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
-            installTask.ChangeStatus(status);
-            bool isStop = false;
-            void StopRequestedHandler(object sender, EventArgs e)
-            {
-                isStop = true;
-                installTask.StopRequested -= StopRequestedHandler;
-            };
-            installTask.StopRequested += StopRequestedHandler;
-            bool hasUpdate = CheckUpdate(out string newVersion);
-            installTask.StopRequested -= StopRequestedHandler;
-            if (isStop) return;
-            if (hasUpdate)
-            {
-                UpdateStarted += (sender, e) =>
-                {
-                    status.State = SpigotBuildToolsStatus.ToolState.Update;
-                };
-                UpdateProgressChanged += (progress) =>
-                {
-                    status.Percentage = progress;
-                    installTask.ChangePercentage(progress / 2);
-                };
-                UpdateFinished += (sender, e) =>
-                {
-                    installTask.ChangePercentage(50);
-                    installTask.OnStatusChanged();
-                    DoInstall(installTask, status, version);
-                };
-                Update(installTask, newVersion);
-            }
-            else
-            {
-                installTask.ChangePercentage(50);
-                installTask.OnStatusChanged();
-                DoInstall(installTask, status, version);
-            }
-        }
-
         public void Install(InstallTask task, string minecraftVersion, string fabricVersion)
         {
             InstallTask installTask = task;
@@ -194,58 +152,6 @@ namespace WitherTorch.Core.Servers.Utils
                 installTask.OnStatusChanged();
                 DoInstall(installTask, status, minecraftVersion, fabricVersion);
             }
-        }
-
-        private void DoInstall(InstallTask task, FabricInstallerStatus status, string version)
-        {
-            InstallTask installTask = task;
-            FabricInstallerStatus installStatus = status;
-            installStatus.State = SpigotBuildToolsStatus.ToolState.Build;
-            JavaRuntimeEnvironment environment = RuntimeEnvironment.JavaDefault;
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -dir \"{2}\" -downloadMinecraft", buildToolFileInfo.FullName, version, installTask.Owner.ServerDirectory),
-                WorkingDirectory = workingDirectoryInfo.FullName,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-            System.Diagnostics.Process innerProcess = System.Diagnostics.Process.Start(startInfo);
-            innerProcess.EnableRaisingEvents = true;
-            innerProcess.BeginOutputReadLine();
-            innerProcess.BeginErrorReadLine();
-            void StopRequestedHandler(object sender, EventArgs e)
-            {
-                try
-                {
-                    innerProcess.Kill();
-                }
-                catch (Exception)
-                {
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-            };
-            installTask.StopRequested += StopRequestedHandler;
-            innerProcess.OutputDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
-            innerProcess.ErrorDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
-            innerProcess.Exited += (sender, e) =>
-            {
-                installTask.StopRequested -= StopRequestedHandler;
-                installTask.OnInstallFinished();
-                installTask.ChangePercentage(100);
-                innerProcess.Dispose();
-            };
         }
 
         private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricVersion)

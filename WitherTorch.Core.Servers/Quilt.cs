@@ -26,6 +26,7 @@ namespace WitherTorch.Core.Servers
         private const string manifestListURL = "https://meta.quiltmc.org/v3/versions/game";
         private const string manifestListURLForLoader = "https://meta.quiltmc.org/v3/versions/loader";
         internal static string[] versions;
+        internal static VersionStruct[] loaderVersions;
         protected bool _isStarted;
 
         protected SystemProcess process;
@@ -43,33 +44,10 @@ namespace WitherTorch.Core.Servers
 
         public override string ServerVersion => versionString;
 
-        private static void LoadVersionList()
+        private static string[] LoadVersionList()
         {
-            List<string> versionList = new List<string>();
-            try
-            {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    JArray jsonArray = JsonConvert.DeserializeObject<JArray>(manifestString);
-                    foreach (JToken token in jsonArray)
-                    {
-                        if (token is JObject tokenObject && tokenObject.TryGetValue("version", out JToken versionToken) && versionToken.Type == JTokenType.String)
-                        {
-                            string versionString = versionToken.ToString();
-                            if (Array.Find(MojangAPI.Versions, str => str == versionString) != default)
-                            {
-                                versionList.Add(versionString);
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception)
-            {
-
-            }
             var comparer = MojangAPI.VersionComparer.Instance;
+            var versions = MojangAPI.Versions;
             if (comparer is null)
             {
                 using (AutoResetEvent trigger = new AutoResetEvent(false))
@@ -79,7 +57,7 @@ namespace WitherTorch.Core.Servers
                         trigger.Set();
                     }
                     MojangAPI.Initialized += trig;
-                    if (MojangAPI.VersionDictionary is null)
+                    if (versions is null)
                     {
                         trigger.WaitOne();
                     }
@@ -87,54 +65,95 @@ namespace WitherTorch.Core.Servers
                     comparer = MojangAPI.VersionComparer.Instance;
                 }
             }
-            versions = versionList.ToArray();
-            Array.Sort(versions, comparer);
-            Array.Reverse(versions);
-        }
-
-        public override bool ChangeVersion(int versionIndex)
-        {
+            List<string> versionList = null;
             try
             {
-                if (versions is null) LoadVersionList();
-                versionString = versions[versionIndex];
-                BuildVersionInfo();
-                quiltVersion = GetLatestQuiltLoaderVersion();
-                _cache = null;
-                InstallSoftware();
+                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+                if (manifestString != null)
+                {
+                    VersionStruct[] array = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+                    int count = array.Length;
+                    versionList = new List<string>(count);
+                    for (int i = 0; i < count; i++)
+                    {
+                        string version = array[i].Version;
+                        if (versions.Contains(version))
+                            versionList.Add(version);
+                    }
+                }
             }
             catch (Exception)
             {
-                return false;
+
             }
-            return true;
+            if (versionList is object)
+            {
+                versions = versionList.ToArray();
+                Array.Sort(versions, comparer);
+                Array.Reverse(versions);
+                return Quilt.versions = versions;
+            }
+            else
+            {
+                return Quilt.versions = null;
+            }
         }
 
-        public bool ChangeVersion(int versionIndex, string quiltVersion)
+        private static VersionStruct[] LoadQuiltLoaderVersions()
         {
             try
             {
-                if (versions is null) LoadVersionList();
+                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+                if (manifestString is null)
+                    return loaderVersions = null;
+                else
+                    return loaderVersions = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+            }
+            catch (Exception)
+            {
+                return loaderVersions = null;
+            }
+        }
+
+        private static string GetLatestStableQuiltLoaderVersion()
+        {
+            VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
+            if (loaderVersions is object)
+            {
+                int count = loaderVersions.Length;
+                for (int i = 0; i < count; i++)
+                {
+                    VersionStruct loaderVersion = loaderVersions[i];
+                    if (loaderVersion.Stable)
+                        return loaderVersion.Version;
+                }
+                return count > 0 ? loaderVersions[0].Version : null;
+            }
+            return null;
+        }
+
+        public override bool ChangeVersion(int versionIndex)
+            => ChangeVersion(versionIndex, GetLatestStableQuiltLoaderVersion());
+
+        public bool ChangeVersion(int versionIndex, string quiltVersion)
+        {
+            string[] versions = Quilt.versions ?? LoadVersionList();
+            if (versions is object)
+            {
                 versionString = versions[versionIndex];
                 BuildVersionInfo();
                 this.quiltVersion = quiltVersion;
                 _cache = null;
                 InstallSoftware(quiltVersion);
+                return true;
             }
-            catch (Exception)
+            else
             {
                 return false;
             }
-            return true;
         }
 
         InstallTask installingTask;
-        private void InstallSoftware()
-        {
-            installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            QuiltInstaller.Instance.Install(installingTask, versionString);
-        }
 
         private void InstallSoftware(string quiltVersion)
         {
@@ -151,11 +170,7 @@ namespace WitherTorch.Core.Servers
         string _cache;
         public override string GetReadableVersion()
         {
-            if (_cache is null)
-            {
-                _cache = versionString + "-" + quiltVersion;
-            }
-            return _cache;
+            return _cache ?? (_cache = versionString + "-" + quiltVersion);
         }
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
@@ -170,49 +185,28 @@ namespace WitherTorch.Core.Servers
 
         public override string[] GetSoftwareVersions()
         {
-            if (versions is null)
-            {
-                LoadVersionList();
-            }
-            return versions;
+            return versions ?? LoadVersionList();
         }
 
-        public static string GetLatestQuiltLoaderVersion()
+        static string[] loaderVersionKeys;
+        public static string[] GetLoaderVersions()
         {
-            string result = string.Empty;
-            try
+            string[] loaderVersionKeys = Quilt.loaderVersionKeys;
+            if (loaderVersionKeys is null)
             {
-                JArray jsonArray;
-#if NET472
-                using (WebClient client = new WebClient() { Encoding = Encoding.UTF8 })
+                VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
+                if (loaderVersions is object)
                 {
-                    client.Headers.Set(HttpRequestHeader.UserAgent, UserAgent);
-                    jsonArray = JsonConvert.DeserializeObject<JArray>(client.DownloadString(manifestListURLForLoader));
-                }
-#elif NET5_0
-                using (HttpClient client = new HttpClient())
-                {
-                    jsonArray = JsonConvert.DeserializeObject<JArray>(client.GetStringAsync(manifestListURLForLoader).Result);
-                }
-#endif
-                foreach (JToken token in jsonArray)
-                {
-                    if (token is JObject tokenObject && tokenObject.TryGetValue("version", out JToken versionToken) && versionToken.Type == JTokenType.String)
+                    int length = loaderVersions.Length;
+                    loaderVersionKeys = new string[length];
+                    for (int i = 0; i < length; i++)
                     {
-                        string versionString = versionToken.ToString();
-                        if (Version.TryParse(versionString, out _))
-                        {
-                            result = versionString;
-                            break;
-                        }
+                        loaderVersionKeys[i] = loaderVersions[i].Version;
                     }
+                    Quilt.loaderVersionKeys = loaderVersionKeys;
                 }
             }
-            catch (Exception)
-            {
-
-            }
-            return result;
+            return loaderVersionKeys;
         }
 
         public override void RunServer(RuntimeEnvironment environment)
