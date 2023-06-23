@@ -108,7 +108,7 @@ namespace WitherTorch.Core.Servers
             InstallTask installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);
             installingTask.ChangeStatus(PreparingInstallStatus.Instance);
-            WebClient client = new WebClient();
+            WebClient2 client = new WebClient2();
             bool isStop = false;
             void StopRequestedHandler(object sender, EventArgs e)
             {

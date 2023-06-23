@@ -2,9 +2,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Net;
 using System.Text;
 using System.Xml;
+using WitherTorch.Core.Utils;
+using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
 {
@@ -60,9 +61,9 @@ namespace WitherTorch.Core.Servers.Utils
             }
 
             XmlDocument manifestXML = new XmlDocument();
-            using (WebClient client = new WebClient() { Encoding = Encoding.UTF8 })
+            using (WebClient2 client = new WebClient2())
             {
-                client.Headers.Set(HttpRequestHeader.UserAgent, @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36");
+                client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
                 manifestXML.LoadXml(client.DownloadString(manifestListURL));
             }
             nowVersion = int.Parse(manifestXML.SelectSingleNode("//mavenModuleSet/lastSuccessfulBuild/number").InnerText);
@@ -76,7 +77,7 @@ namespace WitherTorch.Core.Servers.Utils
         private void Update(InstallTask installTask, int version)
         {
             UpdateStarted?.Invoke(this, EventArgs.Empty);
-            WebClient client = new WebClient();
+            WebClient2 client = new WebClient2();
             void StopRequestedHandler(object sender, EventArgs e)
             {
                 try
@@ -107,7 +108,7 @@ namespace WitherTorch.Core.Servers.Utils
                 installTask.StopRequested -= StopRequestedHandler;
                 UpdateFinished?.Invoke(this, EventArgs.Empty);
             };
-            client.Headers.Set(HttpRequestHeader.UserAgent, @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36");
+            client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
             client.DownloadFileAsync(new Uri(downloadURL), buildToolFileInfo.FullName);
         }
         public delegate void UpdateProgressEventHandler(int progress);

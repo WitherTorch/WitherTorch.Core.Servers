@@ -78,7 +78,7 @@ namespace WitherTorch.Core.Servers
             if (versionDict.TryGetValue(versionString, out string fullVersionString))
             {
                 DownloadHelper helper = new DownloadHelper(
-                    task: installingTask, webClient: new WebClient(), downloadUrl: string.Format(downloadURL, fullVersionString),
+                    task: installingTask, webClient: new WebClient2(), downloadUrl: string.Format(downloadURL, fullVersionString),
                     filename: Path.Combine(ServerDirectory, @"powernukkit-" + versionString + ".jar"));
                 helper.Start();
             }

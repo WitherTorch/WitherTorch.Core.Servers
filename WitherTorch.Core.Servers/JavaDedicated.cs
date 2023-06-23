@@ -30,7 +30,7 @@ namespace WitherTorch.Core.Servers
 
         public override string ServerVersion => versionString;
 
-        private void InstallSoftware()
+        private async void InstallSoftware()
         {
             InstallTask installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);
@@ -46,8 +46,8 @@ namespace WitherTorch.Core.Servers
                     installingTask.StopRequested -= StopRequestedHandler;
                 }
                 installingTask.StopRequested += StopRequestedHandler;
-                WebClient client = new WebClient();
-                JObject jsonObject = JsonConvert.DeserializeObject<JObject>(client.DownloadString(manifestURL));
+                WebClient2 client = new WebClient2();
+                JObject jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(manifestURL));
                 installingTask.StopRequested -= StopRequestedHandler;
                 if (isStop) return;
                 JToken token = jsonObject.GetValue("downloads")["server"];

@@ -171,7 +171,7 @@ namespace WitherTorch.Core.Servers
 
         public void InstallSoftware(Tuple<string, string> selectedVersion)
         {
-            WebClient client = new WebClient();
+            WebClient2 client = new WebClient2();
             bool needInstall = false;
             InstallTask installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);

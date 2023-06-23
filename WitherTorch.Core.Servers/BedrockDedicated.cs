@@ -2,9 +2,10 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Net;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using WitherTorch.Core.Utils;
+using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers
 {
@@ -100,7 +101,7 @@ namespace WitherTorch.Core.Servers
         {
             InstallTask installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);
-            WebClient client = new WebClient();
+            WebClient2 client = new WebClient2();
             string downloadURL;
 #if NET472
             PlatformID platformID = Environment.OSVersion.Platform;
