@@ -13,12 +13,12 @@ using WitherTorch.Core.Utils;
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
-    /// Forge 伺服器
+    /// NeoForge 伺服器
     /// </summary>
-    public class Forge : AbstractJavaEditionServer<Forge>
+    public class NeoForge : AbstractJavaEditionServer<NeoForge>
     {
-        private const string manifestListURL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
-        private const string downloadURLPrefix = "https://maven.minecraftforge.net/net/minecraftforge/forge/";
+        private const string manifestListURL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml";
+        private const string downloadURLPrefix = "https://maven.neoforged.net/releases/net/neoforged/forge/";
         private readonly static int downloadURLPrefixLength = downloadURLPrefix.Length;
         private static StringBuilder URLBuilder = null;
         internal static string[] versions;
@@ -31,13 +31,12 @@ namespace WitherTorch.Core.Servers
         private JavaRuntimeEnvironment environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
-        private static MojangAPI.VersionInfo mc1_3_2, mc1_5_2;
 
-        static Forge()
+        static NeoForge()
         {
             CallWhenStaticInitialize();
             SoftwareRegistrationDelegate += Initialize;
-            SoftwareID = "forge";
+            SoftwareID = "neoforge";
         }
 
         public override string ServerVersion => versionString;
@@ -49,8 +48,6 @@ namespace WitherTorch.Core.Servers
 
         private static void Initialize()
         {
-            if (mc1_3_2 is null) MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out mc1_3_2);
-            if (mc1_5_2 is null) MojangAPI.VersionDictionary?.TryGetValue("1.5.2", out mc1_5_2);
             LoadVersionList();
         }
 
@@ -67,6 +64,7 @@ namespace WitherTorch.Core.Servers
                     List<Tuple<string, string>> historyVersionList = null;
                     foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
                     {
+                        if (token.InnerText == "1.20.1-47.1.7") continue; //此版本不存在
                         string[] versionSplits = token.InnerText.Split(new char[] { '-' });
                         string version;
                         unsafe
@@ -126,11 +124,13 @@ namespace WitherTorch.Core.Servers
             string[] versions = versionKeys.ToArray();
             Array.Sort(versions, comparer);
             Array.Reverse(versions);
-            Forge.versions = versions;
+            NeoForge.versions = versions;
             for (int i = 0; i < versions.Length; i++)
             {
                 string key = versions[i];
-                versionDict.Add(key, preparingVersionDict[key].ToArray());
+                var list = preparingVersionDict[key];
+                list.Reverse();
+                versionDict.Add(key, list.ToArray());
                 preparingVersionDict[key] = null;
             }
         }
@@ -172,7 +172,6 @@ namespace WitherTorch.Core.Servers
         public void InstallSoftware(Tuple<string, string> selectedVersion)
         {
             WebClient2 client = new WebClient2();
-            bool needInstall = false;
             InstallTask installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);
             string downloadURL = null;
@@ -184,58 +183,25 @@ namespace WitherTorch.Core.Servers
             {
                 URLBuilder.Append(downloadURLPrefix);
             }
-            if (mc1_3_2 is null) MojangAPI.VersionDictionary.TryGetValue("1.3.2", out mc1_3_2);
-            if (GetMojangVersionInfo() < mc1_3_2) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
-            {
-                URLBuilder.AppendFormat("{0}/forge-{0}-server.zip", selectedVersion.Item2);
-                downloadURL = URLBuilder.ToString();
-            }
-            else
-            {
-                if (mc1_5_2 is null) MojangAPI.VersionDictionary.TryGetValue("1.5.2", out mc1_5_2);
-                if (GetMojangVersionInfo() < mc1_5_2) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
-                {
-                    URLBuilder.AppendFormat("{0}/forge-{0}-universal.zip", selectedVersion.Item2);
-                    downloadURL = URLBuilder.ToString();
-                }
-                else  // 1.5.2 or above > Download Installer (*.jar)
-                {
-                    URLBuilder.AppendFormat("{0}/forge-{0}-installer.jar", selectedVersion.Item2);
-                    downloadURL = URLBuilder.ToString();
-                    needInstall = true;
-                }
-            }
+            URLBuilder.AppendFormat("{0}/forge-{0}-installer.jar", selectedVersion.Item2);
+            downloadURL = URLBuilder.ToString();
             URLBuilder.Clear();
             if (downloadURL != null)
             {
                 string installerLocation;
-                if (needInstall)
-                {
-                    installerLocation = Path.Combine(ServerDirectory, @"forge-" + selectedVersion.Item2 + "-installer.jar");
-                }
-                else
-                {
-                    installerLocation = Path.Combine(ServerDirectory, @"forge-" + selectedVersion.Item2 + ".jar");
-                }
+                installerLocation = Path.Combine(ServerDirectory, @"neoforge-" + selectedVersion.Item2 + "-installer.jar");
                 DownloadHelper helper = new DownloadHelper(
                     task: installingTask, webClient: client, downloadUrl: downloadURL,
                     filename: installerLocation, finishInstallTaskAfterDownload: false, percentageMultiplier: 0.5);
                 helper.DownloadCompleted += delegate
                 {
-                    if (needInstall)
+                    try
                     {
-                        try
-                        {
-                            RunInstaller(installingTask, installerLocation);
-                        }
-                        catch (Exception)
-                        {
-                            installingTask.OnInstallFailed();
-                        }
+                        RunInstaller(installingTask, installerLocation);
                     }
-                    else
+                    catch (Exception)
                     {
-                        installingTask.OnInstallFinished();
+                        installingTask.OnInstallFailed();
                     }
                 };
                 helper.Start();
@@ -356,8 +322,11 @@ namespace WitherTorch.Core.Servers
 
         private IEnumerable<string> GetPossibleForgePaths(string fullVersionString)
         {
-            yield return Path.Combine(ServerDirectory, "forge-" + fullVersionString + "-universal.jar");
-            yield return Path.Combine(ServerDirectory, "forge-" + fullVersionString + ".jar");
+            string serverDir = ServerDirectory;
+            yield return Path.Combine(serverDir, "neoforge-" + fullVersionString + "-universal.jar");
+            yield return Path.Combine(serverDir, "neoforge-" + fullVersionString + ".jar");
+            yield return Path.Combine(serverDir, "forge-" + fullVersionString + "-universal.jar");
+            yield return Path.Combine(serverDir, "forge-" + fullVersionString + ".jar");
         }
 
         public override void RunServer(RuntimeEnvironment environment)
@@ -401,7 +370,7 @@ namespace WitherTorch.Core.Servers
                     }
                     else
                     {
-                        string argPath = "@libraries/net/minecraftforge/forge/" + fullVersionString;
+                        string argPath = "@libraries/net/neoforged/forge/" + fullVersionString;
 #if NET472
                         switch (Environment.OSVersion.Platform)
                         {
