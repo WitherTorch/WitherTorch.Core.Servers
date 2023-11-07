@@ -59,19 +59,18 @@
 	</ItemGroup>
 
 	<Choose>
-		<!--獨立編譯時使用-->
-		<When Condition="Exists('..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj')"> 
-			<ItemGroup>
-				<ProjectReference Include="..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
-			</ItemGroup>
-		</When>
-		
 		<!--被當成子模組編譯時使用-->
 		<When Condition="Exists('..\..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj')">
 			<ItemGroup>
 				<ProjectReference Include="..\..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
 			</ItemGroup>
 		</When>
+		<!--獨立編譯時使用-->
+		<Otherwise>
+			<ItemGroup>
+				<ProjectReference Include="..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
+			</ItemGroup>
+		</Otherwise>
 	</Choose>
 
 </Project>
