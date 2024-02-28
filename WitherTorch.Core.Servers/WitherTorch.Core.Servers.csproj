@@ -15,7 +15,7 @@
 		<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
 		<PackageProjectUrl>https://github.com/WitherTorch/WitherTorch.CoreServers</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/WitherTorch/WitherTorch.Core.Servers</RepositoryUrl>
-		<Version>1.8.1</Version>
+		<Version>1.8.2</Version>
 		<PackageIcon>withertorch_core_128.png</PackageIcon>
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>minecraft;minecraft-server</PackageTags>
@@ -31,7 +31,7 @@
 		<Optimize>True</Optimize>
 		<DebugType>none</DebugType>
 	</PropertyGroup>
-	
+
 	<ItemGroup>
 		<Compile Include="..\GlobalAssemblyInfo.cs" Link="GlobalAssemblyInfo.cs" />
 	</ItemGroup>
@@ -39,12 +39,13 @@
 	<ItemGroup>
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 		<PackageReference Include="System.IO.Compression" Version="4.3.0" Condition="'$(TargetFramework)' == 'net5'" />
-		<PackageReference Include="YamlDotNet" Version="13.7.1" />
+		<PackageReference Include="YamlDotNet" Version="15.1.2" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Reference Include="System.IO.Compression" Condition="'$(TargetFramework)' == 'net472'" />
 		<Reference Include="System.Net.Http" Condition="'$(TargetFramework)' == 'net472'" />
+		<ProjectReference Include="$(SolutionDir)\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -58,20 +59,5 @@
 		</None>
 		<None Include="Resources\withertorch_core_128.png" Pack="true" PackagePath="" />
 	</ItemGroup>
-
-	<Choose>
-		<!--被當成子模組編譯時使用-->
-		<When Condition="Exists('..\..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj')">
-			<ItemGroup>
-				<ProjectReference Include="..\..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
-			</ItemGroup>
-		</When>
-		<!--獨立編譯時使用-->
-		<Otherwise>
-			<ItemGroup>
-				<ProjectReference Include="..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
-			</ItemGroup>
-		</Otherwise>
-	</Choose>
 
 </Project>
