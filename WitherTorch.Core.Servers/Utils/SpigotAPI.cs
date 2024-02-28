@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 #endif
 using System.Xml;
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers.Utils
 {
@@ -95,9 +96,9 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     XmlDocument manifestXML = new XmlDocument();
 #if NET472
-                    using (System.Net.WebClient client = new System.Net.WebClient() { Encoding = Encoding.UTF8 })
+                    using (WebClient2 client = new WebClient2())
                     {
-                        client.Headers.Set(System.Net.HttpRequestHeader.UserAgent, UserAgent);
+                        client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
                         manifestXML.LoadXml(client.DownloadString(url));
                     }
 #elif NET5_0

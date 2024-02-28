@@ -15,7 +15,7 @@
 		<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
 		<PackageProjectUrl>https://github.com/WitherTorch/WitherTorch.CoreServers</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/WitherTorch/WitherTorch.Core.Servers</RepositoryUrl>
-		<Version>1.8.1-CI-2</Version>
+		<Version>1.8.1</Version>
 		<PackageIcon>withertorch_core_128.png</PackageIcon>
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>minecraft;minecraft-server</PackageTags>
@@ -24,6 +24,7 @@
 		<PackageReadmeFile>package_README.md</PackageReadmeFile>
 		<SignAssembly>True</SignAssembly>
 		<AssemblyOriginatorKeyFile>keypair.snk</AssemblyOriginatorKeyFile>
+		<Nullable>disable</Nullable>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -38,7 +39,7 @@
 	<ItemGroup>
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 		<PackageReference Include="System.IO.Compression" Version="4.3.0" Condition="'$(TargetFramework)' == 'net5'" />
-		<PackageReference Include="YamlDotNet" Version="13.1.1" />
+		<PackageReference Include="YamlDotNet" Version="13.7.1" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -59,19 +60,18 @@
 	</ItemGroup>
 
 	<Choose>
-		<!--獨立編譯時使用-->
-		<When Condition="Exists('..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj')"> 
-			<ItemGroup>
-				<ProjectReference Include="..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
-			</ItemGroup>
-		</When>
-		
 		<!--被當成子模組編譯時使用-->
 		<When Condition="Exists('..\..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj')">
 			<ItemGroup>
 				<ProjectReference Include="..\..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
 			</ItemGroup>
 		</When>
+		<!--獨立編譯時使用-->
+		<Otherwise>
+			<ItemGroup>
+				<ProjectReference Include="..\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
+			</ItemGroup>
+		</Otherwise>
 	</Choose>
 
 </Project>

@@ -1,7 +1,6 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -13,33 +12,34 @@ using System.Net.Http;
 #endif
 using System.Threading;
 using WitherTorch.Core.Servers.Utils;
-using WitherTorch.Core.Utils;
-using YamlDotNet.Core.Tokens;
 
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
     /// Fabric 伺服器
     /// </summary>
-    public class Fabric : AbstractJavaEditionServer<Fabric>
+    public class Quilt : AbstractJavaEditionServer<Quilt>
     {
-        private const string manifestListURL = "https://meta.fabricmc.net/v2/versions/game";
-        private const string manifestListURLForLoader = "https://meta.fabricmc.net/v2/versions/loader";
+#if NET472
+        private const string UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36";
+#endif
+        private const string manifestListURL = "https://meta.quiltmc.org/v3/versions/game";
+        private const string manifestListURLForLoader = "https://meta.quiltmc.org/v3/versions/loader";
         internal static string[] versions;
         internal static VersionStruct[] loaderVersions;
         protected bool _isStarted;
 
         protected SystemProcess process;
         private string versionString;
-        private string fabricLoaderVersion;
+        private string quiltLoaderVersion;
         private JavaRuntimeEnvironment environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
-        static Fabric()
+        static Quilt()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "fabric";
+            SoftwareID = "quilt";
         }
 
         public override string ServerVersion => versionString;
@@ -91,15 +91,15 @@ namespace WitherTorch.Core.Servers
                 versions = versionList.ToArray();
                 Array.Sort(versions, comparer);
                 Array.Reverse(versions);
-                return Fabric.versions = versions;
+                return Quilt.versions = versions;
             }
             else
             {
-                return Fabric.versions = null;
+                return Quilt.versions = null;
             }
         }
 
-        private static VersionStruct[] LoadFabricLoaderVersions()
+        private static VersionStruct[] LoadQuiltLoaderVersions()
         {
             try
             {
@@ -115,9 +115,9 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        public static string GetLatestStableFabricLoaderVersion()
+        public static string GetLatestStableQuiltLoaderVersion()
         {
-            VersionStruct[] loaderVersions = Fabric.loaderVersions ?? LoadFabricLoaderVersions();
+            VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
             if (loaderVersions is object)
             {
                 int count = loaderVersions.Length;
@@ -133,18 +133,18 @@ namespace WitherTorch.Core.Servers
         }
 
         public override bool ChangeVersion(int versionIndex)
-            => ChangeVersion(versionIndex, GetLatestStableFabricLoaderVersion());
+            => ChangeVersion(versionIndex, GetLatestStableQuiltLoaderVersion());
 
-        public bool ChangeVersion(int versionIndex, string fabricVersion)
+        public bool ChangeVersion(int versionIndex, string quiltVersion)
         {
-            string[] versions = Fabric.versions ?? LoadVersionList();
+            string[] versions = Quilt.versions ?? LoadVersionList();
             if (versions is object)
             {
                 versionString = versions[versionIndex];
                 BuildVersionInfo();
-                fabricLoaderVersion = fabricVersion;
+                this.quiltLoaderVersion = quiltVersion;
                 _cache = null;
-                InstallSoftware(fabricVersion);
+                InstallSoftware(quiltVersion);
                 return true;
             }
             else
@@ -155,11 +155,11 @@ namespace WitherTorch.Core.Servers
 
         InstallTask installingTask;
 
-        private void InstallSoftware(string fabricVersion)
+        private void InstallSoftware(string quiltVersion)
         {
             installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);
-            FabricInstaller.Instance.Install(installingTask, versionString, fabricVersion);
+            QuiltInstaller.Instance.Install(installingTask, versionString, quiltVersion);
         }
 
         public override AbstractProcess GetProcess()
@@ -170,13 +170,13 @@ namespace WitherTorch.Core.Servers
         string _cache;
         public override string GetReadableVersion()
         {
-            return _cache ?? (_cache = versionString + "-" + fabricLoaderVersion);
+            return _cache ?? (_cache = versionString + "-" + quiltLoaderVersion);
         }
 
         /// <summary>
-        /// 取得 Fabric Loader 的版本號
+        /// 取得 Quilt Loader 的版本號
         /// </summary>
-        public string FabricLoaderVersion => fabricLoaderVersion;
+        public string QuiltLoaderVersion => quiltLoaderVersion;
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
         {
@@ -196,10 +196,10 @@ namespace WitherTorch.Core.Servers
         static string[] loaderVersionKeys;
         public static string[] GetLoaderVersions()
         {
-            string[] loaderVersionKeys = Fabric.loaderVersionKeys;
+            string[] loaderVersionKeys = Quilt.loaderVersionKeys;
             if (loaderVersionKeys is null)
             {
-                VersionStruct[] loaderVersions = Fabric.loaderVersions ?? LoadFabricLoaderVersions();
+                VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
                 if (loaderVersions is object)
                 {
                     int length = loaderVersions.Length;
@@ -208,7 +208,7 @@ namespace WitherTorch.Core.Servers
                     {
                         loaderVersionKeys[i] = loaderVersions[i].Version;
                     }
-                    Fabric.loaderVersionKeys = loaderVersionKeys;
+                    Quilt.loaderVersionKeys = loaderVersionKeys;
                 }
             }
             return loaderVersionKeys;
@@ -222,7 +222,7 @@ namespace WitherTorch.Core.Servers
                     environment = RuntimeEnvironment.JavaDefault;
                 if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
                 {
-                    string path = Path.Combine(ServerDirectory, "fabric-server-launch.jar");
+                    string path = Path.Combine(ServerDirectory, "quilt-server-launch.jar");
                     if (File.Exists(path))
                     {
                         string javaPath = javaRuntimeEnvironment.JavaPath;
@@ -292,10 +292,10 @@ namespace WitherTorch.Core.Servers
             {
                 JsonPropertyFile serverInfoJson = ServerInfoJson;
                 versionString = serverInfoJson["version"].ToString();
-                JToken fabricVerNode = serverInfoJson["fabric-version"];
-                if (fabricVerNode?.Type == JTokenType.String)
+                JToken quiltVerNode = serverInfoJson["quilt-version"];
+                if (quiltVerNode?.Type == JTokenType.String)
                 {
-                    fabricLoaderVersion = fabricVerNode.ToString();
+                    quiltLoaderVersion = quiltVerNode.ToString();
                 }
                 else
                 {
@@ -333,7 +333,7 @@ namespace WitherTorch.Core.Servers
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
             serverInfoJson["version"] = versionString;
-            serverInfoJson["fabric-version"] = fabricLoaderVersion;
+            serverInfoJson["quilt-version"] = quiltLoaderVersion;
             if (environment != null)
             {
                 serverInfoJson["java.path"] = environment.JavaPath;

@@ -2,9 +2,10 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Net;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using WitherTorch.Core.Utils;
+using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers
 {
@@ -100,7 +101,7 @@ namespace WitherTorch.Core.Servers
         {
             InstallTask installingTask = new InstallTask(this);
             OnServerInstalling(installingTask);
-            WebClient client = new WebClient();
+            WebClient2 client = new WebClient2();
             string downloadURL;
 #if NET472
             PlatformID platformID = Environment.OSVersion.Platform;
@@ -147,70 +148,67 @@ namespace WitherTorch.Core.Servers
                 installingTask.StopRequested -= StopRequestedHandler;
             }
             installingTask.StopRequested += StopRequestedHandler;
-            client.OpenReadCompleted += async delegate (object sender, OpenReadCompletedEventArgs e)
+            client.OpenReadCompleted += delegate (object sender, OpenReadCompletedEventArgs e)
             {
-                await Task.Run(() =>
+                try
                 {
-                    try
+                    using (ZipArchive archive = new ZipArchive(e.Result, ZipArchiveMode.Read, false))
                     {
-                        using (ZipArchive archive = new ZipArchive(e.Result, ZipArchiveMode.Read, false))
+                        System.Collections.ObjectModel.ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
+                        System.Collections.Generic.IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
+                        int currentCount = 0;
+                        int count = entries.Count;
+                        while (enumerator.MoveNext() && !stopFlag.Value)
                         {
-                            System.Collections.ObjectModel.ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
-                            System.Collections.Generic.IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
-                            int currentCount = 0;
-                            int count = entries.Count;
-                            while (enumerator.MoveNext() && !stopFlag.Value)
+                            ZipArchiveEntry entry = enumerator.Current;
+                            string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
+                            if (filePath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)) // Is Directory
                             {
-                                ZipArchiveEntry entry = enumerator.Current;
-                                string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
-                                if (filePath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)) // Is Directory
-                                {
-                                    if (!Directory.Exists(filePath))
-                                        Directory.CreateDirectory(filePath);
-                                }
-                                else // Is File
-                                {
-                                    switch (entry.FullName)
-                                    {
-                                        case "allowlist.json":
-                                        case "whitelist.json":
-                                        case "permissions.json":
-                                        case "server.properties":
-                                            if (!File.Exists(filePath))
-                                            {
-                                                goto default;
-                                            }
-                                            break;
-                                        default:
-                                            {
-                                                entry.ExtractToFile(filePath, true);
-                                            }
-                                            break;
-                                    }
-                                }
-                                currentCount++;
-                                status.Percentage = currentCount * 100.0 / count;
-                                installingTask.ChangePercentage(status.Percentage);
+                                if (!Directory.Exists(filePath))
+                                    Directory.CreateDirectory(filePath);
                             }
-                        }
-                        client.Dispose();
-                        installingTask.StopRequested -= StopRequestedHandler;
-                        if (stopFlag.Value)
-                        {
-                            installingTask.OnInstallFailed();
-                        }
-                        else
-                        {
-                            installingTask.ChangePercentage(100);
-                            installingTask.OnInstallFinished();
+                            else // Is File
+                            {
+                                switch (entry.FullName)
+                                {
+                                    case "allowlist.json":
+                                    case "whitelist.json":
+                                    case "permissions.json":
+                                    case "server.properties":
+                                        if (!File.Exists(filePath))
+                                        {
+                                            goto default;
+                                        }
+                                        break;
+                                    default:
+                                        {
+                                            entry.ExtractToFile(filePath, true);
+                                        }
+                                        break;
+                                }
+                            }
+                            currentCount++;
+                            status.Percentage = currentCount * 100.0 / count;
+                            installingTask.ChangePercentage(status.Percentage);
                         }
                     }
-                    catch (Exception)
+                    client.Dispose();
+                    installingTask.StopRequested -= StopRequestedHandler;
+                    if (stopFlag.Value)
                     {
-                        installingTask.StopRequested -= StopRequestedHandler;
                         installingTask.OnInstallFailed();
                     }
-                });
+                    else
+                    {
+                        installingTask.ChangePercentage(100);
+                        installingTask.OnInstallFinished();
+                    }
+                }
+                catch (Exception)
+                {
+                    installingTask.StopRequested -= StopRequestedHandler;
+                    installingTask.OnInstallFailed();
+                }
             };
             client.OpenReadAsync(new Uri(downloadURL));
         }

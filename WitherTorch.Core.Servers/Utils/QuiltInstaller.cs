@@ -10,25 +10,25 @@ using static WitherTorch.Core.Utils.WebClient2;
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>
-    /// 操作 Spigot 官方的建置工具 (BuildTools) 的類別，此類別無法被繼承
+    /// 操作 Quilt 官方的安裝工具 (Quilt Installer) 的類別，此類別無法被繼承
     /// </summary>
-    public sealed class SpigotBuildTools
+    public sealed class QuiltInstaller
     {
-        private const string manifestListURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/api/xml";
-        private const string downloadURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
-        private readonly static DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.SpigotBuildToolsPath));
-        private readonly static FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.jar"));
-        private readonly static FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.version"));
+        private const string manifestListURL = "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/maven-metadata.xml";
+        private const string downloadURL = "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/{0}/quilt-installer-{0}.jar";
+        private readonly static DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.QuiltInstallerPath));
+        private readonly static FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./quilt-installer.jar"));
+        private readonly static FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./quilt-installer.version"));
         private event EventHandler UpdateStarted;
         private event UpdateProgressEventHandler UpdateProgressChanged;
         private event EventHandler UpdateFinished;
-        private static SpigotBuildTools _instance;
-        public static SpigotBuildTools Instance
+        private static QuiltInstaller _instance;
+        public static QuiltInstaller Instance
         {
             get
             {
                 if (_instance is null)
-                    _instance = new SpigotBuildTools();
+                    _instance = new QuiltInstaller();
                 return _instance;
             }
         }
@@ -37,10 +37,9 @@ namespace WitherTorch.Core.Servers.Utils
             CraftBukkit,
             Spigot
         }
-        private static bool CheckUpdate(out int updatedVersion)
+        private static bool CheckUpdate(out string updatedVersion)
         {
-            int version = -1;
-            int nowVersion;
+            string version = null, nowVersion;
             if (workingDirectoryInfo.Exists)
             {
                 if (buildToolVersionInfo.Exists && buildToolFileInfo.Exists)
@@ -51,7 +50,8 @@ namespace WitherTorch.Core.Servers.Utils
                         do
                         {
                             versionText = reader.ReadLine();
-                        } while (!int.TryParse(versionText, out version));
+                        } while (string.IsNullOrWhiteSpace(versionText));
+                        if (!string.IsNullOrWhiteSpace(versionText)) version = versionText;
                     }
                 }
             }
@@ -66,15 +66,15 @@ namespace WitherTorch.Core.Servers.Utils
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
                 manifestXML.LoadXml(client.DownloadString(manifestListURL));
             }
-            nowVersion = int.Parse(manifestXML.SelectSingleNode("//mavenModuleSet/lastSuccessfulBuild/number").InnerText);
-            if (version < nowVersion)
+            nowVersion = manifestXML.SelectSingleNode("//metadata/versioning/latest").InnerText;
+            if (version != nowVersion)
             {
-                version = -1;
+                version = null;
             }
             updatedVersion = nowVersion;
-            return version <= 0;
+            return version is null;
         }
-        private void Update(InstallTask installTask, int version)
+        private void Update(InstallTask installTask, string version)
         {
             UpdateStarted?.Invoke(this, EventArgs.Empty);
             WebClient2 client = new WebClient2();
@@ -92,16 +92,16 @@ namespace WitherTorch.Core.Servers.Utils
             };
             installTask.StopRequested += StopRequestedHandler;
             client.DownloadProgressChanged += delegate (object sender, DownloadProgressChangedEventArgs e)
-            {
-                UpdateProgressChanged?.Invoke(e.ProgressPercentage);
-            };
+                        {
+                            UpdateProgressChanged?.Invoke(e.ProgressPercentage);
+                        };
             client.DownloadFileCompleted += delegate (object sender, AsyncCompletedEventArgs e)
             {
                 client.Dispose();
                 client = null;
                 using (StreamWriter writer = buildToolVersionInfo.CreateText())
                 {
-                    writer.WriteLine(version.ToString());
+                    writer.WriteLine(version);
                     writer.Flush();
                     writer.Close();
                 }
@@ -109,14 +109,14 @@ namespace WitherTorch.Core.Servers.Utils
                 UpdateFinished?.Invoke(this, EventArgs.Empty);
             };
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-            client.DownloadFileAsync(new Uri(downloadURL), buildToolFileInfo.FullName);
+            client.DownloadFileAsync(new Uri(string.Format(downloadURL, version)), buildToolFileInfo.FullName);
         }
         public delegate void UpdateProgressEventHandler(int progress);
 
-        public void Install(InstallTask task, BuildTarget target, string version)
+        public void Install(InstallTask task, string minecraftVersion, string quiltVersion)
         {
             InstallTask installTask = task;
-            SpigotBuildToolsStatus status = new SpigotBuildToolsStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
+            QuiltInstallerStatus status = new QuiltInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
             installTask.ChangeStatus(status);
             bool isStop = false;
             void StopRequestedHandler(object sender, EventArgs e)
@@ -125,7 +125,7 @@ namespace WitherTorch.Core.Servers.Utils
                 installTask.StopRequested -= StopRequestedHandler;
             };
             installTask.StopRequested += StopRequestedHandler;
-            bool hasUpdate = CheckUpdate(out int newVersion);
+            bool hasUpdate = CheckUpdate(out string newVersion);
             installTask.StopRequested -= StopRequestedHandler;
             if (isStop) return;
             if (hasUpdate)
@@ -143,7 +143,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     installTask.ChangePercentage(50);
                     installTask.OnStatusChanged();
-                    DoInstall(installTask, status, target, version);
+                    DoInstall(installTask, status, minecraftVersion, quiltVersion);
                 };
                 Update(installTask, newVersion);
             }
@@ -151,20 +151,20 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 installTask.ChangePercentage(50);
                 installTask.OnStatusChanged();
-                DoInstall(installTask, status, target, version);
+                DoInstall(installTask, status, minecraftVersion, quiltVersion);
             }
         }
 
-        private void DoInstall(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target, string version)
+        private static void DoInstall(InstallTask task, QuiltInstallerStatus status, string minecraftVersion, string quiltVersion)
         {
             InstallTask installTask = task;
-            SpigotBuildToolsStatus installStatus = status;
+            QuiltInstallerStatus installStatus = status;
             installStatus.State = SpigotBuildToolsStatus.ToolState.Build;
             JavaRuntimeEnvironment environment = RuntimeEnvironment.JavaDefault;
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --output-dir \"{3}\"", buildToolFileInfo.FullName, version, target.ToString().ToLower(), installTask.Owner.ServerDirectory),
+                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" install server {1} {2} --install-dir=\\\"{3}\\\" --download-server", buildToolFileInfo.FullName, minecraftVersion, quiltVersion, installTask.Owner.ServerDirectory),
                 WorkingDirectory = workingDirectoryInfo.FullName,
                 CreateNoWindow = true,
                 ErrorDialog = true,
@@ -178,18 +178,6 @@ namespace WitherTorch.Core.Servers.Utils
             innerProcess.EnableRaisingEvents = true;
             innerProcess.BeginOutputReadLine();
             innerProcess.BeginErrorReadLine();
-            void StopRequestedHandler(object sender, EventArgs e)
-            {
-                try
-                {
-                    innerProcess.Kill();
-                }
-                catch (Exception)
-                {
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-            };
-            installTask.StopRequested += StopRequestedHandler;
             innerProcess.OutputDataReceived += (sender, e) =>
             {
                 installStatus.OnProcessMessageReceived(sender, e);
@@ -200,7 +188,6 @@ namespace WitherTorch.Core.Servers.Utils
             };
             innerProcess.Exited += (sender, e) =>
             {
-                installTask.StopRequested -= StopRequestedHandler;
                 installTask.OnInstallFinished();
                 installTask.ChangePercentage(100);
                 innerProcess.Dispose();
