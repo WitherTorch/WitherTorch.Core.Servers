@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
@@ -102,118 +103,82 @@ namespace WitherTorch.Core.Servers
             versions = preparingVersionList.ToArray();
         }
 
-        private void InstallSoftware()
+        private async void InstallSoftware()
         {
-            JObject manifestJSON;
-            InstallTask installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            installingTask.ChangeStatus(PreparingInstallStatus.Instance);
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            task.ChangeStatus(PreparingInstallStatus.Instance);
+            if (!await InstallSoftware(task, string.Format(manifestListURL2, versionString)))
+            {
+                task.OnInstallFailed();
+                return;
+            }
+        }
+
+        private async Task<bool> InstallSoftware(InstallTask task, string manifestURL)
+        {
+            if (string.IsNullOrEmpty(manifestURL))
+                return false;
             WebClient2 client = new WebClient2();
-            bool isStop = false;
-            void StopRequestedHandler(object sender, EventArgs e)
-            {
-                try
-                {
-                    client?.CancelAsync();
-                    client?.Dispose();
-                }
-                catch (Exception)
-                {
-                }
-                isStop = true;
-                installingTask.StopRequested -= StopRequestedHandler;
-            }
-            installingTask.StopRequested += StopRequestedHandler;
-            using (JsonTextReader reader = new JsonTextReader(new StringReader(client.DownloadString(string.Format(manifestListURL2, versionString)))))
-            {
-                try
-                {
-                    manifestJSON = GlobalSerializers.JsonSerializer.Deserialize(reader) as JObject;
-                }
-                catch (Exception)
-                {
-                    manifestJSON = null;
-                }
-            }
-            if (isStop || manifestJSON is null)
-            {
-                installingTask.OnInstallFailed();
-            }
+            InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+            JObject jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(manifestURL));
+            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetValue("builds", out JToken token))
+                return false;
+            JArray jsonArray = token as JArray;
+            if (jsonArray is null)
+                return false;
+            token = jsonArray.Last;
+            if (token is null || !(token is JValue _value && _value.Value is long build))
+                return false;
+            jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(string.Format(manifestListURL3, versionString, build.ToString())));
+            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetValue("downloads", out token))
+                return false;
+            jsonObject = token as JObject;
+            if (jsonObject is null || !jsonObject.TryGetValue("application", out token))
+                return false;
+            jsonObject = token as JObject;
+            if (jsonObject is null || !jsonObject.TryGetValue("name", out token))
+                return false;
+            byte[] sha256;
+            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetValue("sha256", out JToken sha256Token))
+                sha256 = HashHelper.HexStringToByte(sha256Token.ToString());
             else
+                sha256 = null;
+            watcher.Dispose();
+            int? id = FileDownloadHelper.AddTask(task: task, webClient: client, 
+                downloadUrl: string.Format(downloadURL, versionString, build, token.ToString()),
+                filename: Path.Combine(ServerDirectory, @"paper-" + versionString + ".jar"),
+                hash: sha256, hashMethod: HashHelper.HashMethod.SHA256);
+            if (id.HasValue)
             {
-                if (manifestJSON.GetValue("builds") is JArray buildArray && buildArray.Last is JValue rawBuildValue && rawBuildValue.Value is long build)
+                void AfterDownload(object sender, int sendingId)
                 {
-                    using (JsonTextReader reader = new JsonTextReader(new StringReader(client.DownloadString(string.Format(manifestListURL3, versionString, build)))))
+                    if (id.Value != sendingId)
+                        return;
+                    FileDownloadHelper.TaskFinished -= AfterDownload;
+                    if (mc1_19 is null)
+                        MojangAPI.VersionDictionary?.TryGetValue("1.19", out mc1_19);
+                    string path = GetMojangVersionInfo() >= mc1_19 ? "./config/paper-global.yml" : "./paper.yml";
+                    path = Path.GetFullPath(Path.Combine(ServerDirectory, path));
+                    IPropertyFile propertyFile = propertyFiles[3];
+                    if (propertyFile is null || !string.Equals(path, Path.GetFullPath(propertyFile.GetFilePath()), StringComparison.OrdinalIgnoreCase))
                     {
                         try
                         {
-                            manifestJSON = GlobalSerializers.JsonSerializer.Deserialize(reader) as JObject;
+                            propertyFile?.Dispose();
+                            propertyFiles[3] = new YamlPropertyFile(path);
                         }
                         catch (Exception)
                         {
-                            manifestJSON = null;
-                        }
-                    }
-                    this.build = build;
-                    installingTask.StopRequested -= StopRequestedHandler;
-                    if (isStop) return;
-                    else if (manifestJSON is null)
-                    {
-                        installingTask.OnInstallFailed();
-                    }
-                    else
-                    {
-                        JToken token = manifestJSON.GetValue("downloads")["application"];
-                        if (token is JObject tokenObject &&
-                            tokenObject.TryGetValue("name", StringComparison.OrdinalIgnoreCase, out JToken nameToken))
-                        {
-                            byte[] sha256;
-                            if (WTCore.CheckFileHashIfExist && tokenObject.TryGetValue("sha256", StringComparison.OrdinalIgnoreCase, out JToken sha256Token))
-                                sha256 = HashHelper.HexStringToByte(sha256Token.ToString());
-                            else
-                                sha256 = null;
-                            DownloadHelper helper = new DownloadHelper(
-                            task: installingTask, webClient: client, downloadUrl: string.Format(downloadURL, versionString, build, nameToken.ToString()),
-                            filename: Path.Combine(ServerDirectory, @"paper-" + versionString + ".jar"),
-                            hash: sha256, hashMethod: DownloadHelper.HashMethod.Sha256);
-                            helper.DownloadCompleted += DownloadHelper_DownloadCompleted;
-                            helper.Start();
                         }
                     }
                 }
-                else
-                {
-                    installingTask.OnInstallFailed();
-                }
+                FileDownloadHelper.TaskFinished += AfterDownload;
+                return true;
             }
+            return false;
         }
 
-        private void DownloadHelper_DownloadCompleted(object sender, EventArgs e)
-        {
-            try
-            {
-                if (mc1_19 is null) MojangAPI.VersionDictionary?.TryGetValue("1.19", out mc1_19);
-                string path;
-                if (GetMojangVersionInfo() >= mc1_19)
-                {
-                    path = Path.GetFullPath(Path.Combine(ServerDirectory, "./config/paper-global.yml"));
-                }
-                else
-                {
-                    path = Path.GetFullPath(Path.Combine(ServerDirectory, "./paper.yml"));
-                }
-                IPropertyFile propertyFile = propertyFiles[3];
-                if (propertyFile is null || !string.Equals(path, Path.GetFullPath(propertyFile.GetFilePath()), StringComparison.OrdinalIgnoreCase))
-                {
-                    propertyFile?.Dispose();
-                    propertyFiles[3] = new YamlPropertyFile(path);
-                }
-            }
-            catch (Exception)
-            {
-
-            }
-        }
 
         public override bool ChangeVersion(int versionIndex)
         {

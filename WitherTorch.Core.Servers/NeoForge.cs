@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
@@ -18,9 +19,8 @@ namespace WitherTorch.Core.Servers
     public class NeoForge : AbstractJavaEditionServer<NeoForge>
     {
         private const string manifestListURL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml";
-        private const string downloadURLPrefix = "https://maven.neoforged.net/releases/net/neoforged/forge/";
-        private readonly static int downloadURLPrefixLength = downloadURLPrefix.Length;
-        private static StringBuilder URLBuilder = null;
+        private const string downloadURL = "https://maven.neoforged.net/releases/net/neoforged/forge/{0}/forge-{0}-installer.jar";
+
         internal static string[] versions;
         internal static Dictionary<string, Tuple<string, string>[]> versionDict;
         protected bool _isStarted;
@@ -171,41 +171,44 @@ namespace WitherTorch.Core.Servers
 
         public void InstallSoftware(Tuple<string, string> selectedVersion)
         {
-            WebClient2 client = new WebClient2();
-            InstallTask installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            string downloadURL = null;
-            if (URLBuilder is null)
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            if (!InstallSoftware(task, selectedVersion))
             {
-                URLBuilder = new StringBuilder(downloadURLPrefix, downloadURLPrefixLength);
+                task.OnInstallFailed();
+                return;
             }
-            else
+        }
+
+        private bool InstallSoftware(InstallTask task, Tuple<string, string> selectedVersion)
+        {
+            if (selectedVersion is null || string.IsNullOrEmpty(selectedVersion.Item1) || string.IsNullOrEmpty(selectedVersion.Item2))
+                return false;
+            string downloadURL = string.Format(NeoForge.downloadURL, selectedVersion.Item2);
+            string installerLocation = Path.Combine(ServerDirectory, $"neoforge-{selectedVersion.Item2}-installer.jar");
+            int? id = FileDownloadHelper.AddTask(task: task,
+                downloadUrl: downloadURL, filename: installerLocation,
+                percentageMultiplier: 0.5);
+            if (id.HasValue)
             {
-                URLBuilder.Append(downloadURLPrefix);
-            }
-            URLBuilder.AppendFormat("{0}/forge-{0}-installer.jar", selectedVersion.Item2);
-            downloadURL = URLBuilder.ToString();
-            URLBuilder.Clear();
-            if (downloadURL != null)
-            {
-                string installerLocation;
-                installerLocation = Path.Combine(ServerDirectory, @"neoforge-" + selectedVersion.Item2 + "-installer.jar");
-                DownloadHelper helper = new DownloadHelper(
-                    task: installingTask, webClient: client, downloadUrl: downloadURL,
-                    filename: installerLocation, finishInstallTaskAfterDownload: false, percentageMultiplier: 0.5);
-                helper.DownloadCompleted += delegate
+                void AfterDownload(object sender, int sendingId)
                 {
+                    if (sendingId != id.Value)
+                        return;
+                    FileDownloadHelper.TaskFinished -= AfterDownload;
                     try
                     {
-                        RunInstaller(installingTask, installerLocation);
+                        RunInstaller(task, installerLocation);
                     }
                     catch (Exception)
                     {
-                        installingTask.OnInstallFailed();
+                        task.OnInstallFailed();
                     }
                 };
-                helper.Start();
+                FileDownloadHelper.TaskFinished += AfterDownload;
+                return true;
             }
+            return false;
         }
 
         private void RunInstaller(InstallTask task, string jarPath)

@@ -2,10 +2,12 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
+using YamlDotNet.Core.Tokens;
 
 namespace WitherTorch.Core.Servers
 {
@@ -32,49 +34,44 @@ namespace WitherTorch.Core.Servers
 
         private async void InstallSoftware()
         {
-            InstallTask installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            installingTask.ChangeStatus(PreparingInstallStatus.Instance);
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            task.ChangeStatus(PreparingInstallStatus.Instance);
             MojangAPI.VersionInfo versionInfo = mojangVersionInfo;
             string manifestURL = versionInfo.ManifestURL;
-            if (!string.IsNullOrEmpty(manifestURL))
+            if (!await InstallSoftware(task, manifestURL))
             {
-                bool isStop = false;
-                void StopRequestedHandler(object sender, EventArgs e)
-                {
-                    isStop = true;
-                    installingTask.StopRequested -= StopRequestedHandler;
-                }
-                installingTask.StopRequested += StopRequestedHandler;
-                WebClient2 client = new WebClient2();
-                JObject jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(manifestURL));
-                installingTask.StopRequested -= StopRequestedHandler;
-                if (isStop) return;
-                JToken token = jsonObject.GetValue("downloads")["server"];
-                if (token is JObject tokenObject &&
-                    tokenObject.TryGetValue("url", StringComparison.OrdinalIgnoreCase, out JToken downloadURLToken))
-                {
-                    byte[] sha1;
-                    if (WTCore.CheckFileHashIfExist && tokenObject.TryGetValue("sha1", StringComparison.OrdinalIgnoreCase, out JToken sha1Token))
-                        sha1 = HashHelper.HexStringToByte(sha1Token.ToString());
-                    else
-                        sha1 = null;
-                    DownloadHelper helper = new DownloadHelper(
-                        task: installingTask, webClient: client, downloadUrl: downloadURLToken.ToString(),
-                        filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionString + ".jar"),
-                        hash: sha1, hashMethod: DownloadHelper.HashMethod.Sha1);
-                    helper.Start();
-                }
-                else
-                {
-                    installingTask.OnInstallFailed();
-                }
-            }
-            else
-            {
-                installingTask.OnInstallFailed();
+                task.OnInstallFailed();
+                return;
             }
         }
+
+        private async Task<bool> InstallSoftware(InstallTask task, string manifestURL)
+        {
+            if (string.IsNullOrEmpty(manifestURL))
+                return false;
+            WebClient2 client = new WebClient2();
+            InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+            JObject jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(manifestURL));
+            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetValue("downloads", out JToken token))
+                return false;
+            jsonObject = token as JObject;
+            if (jsonObject is null || !jsonObject.TryGetValue("server", out token))
+                return false;
+            jsonObject = token as JObject;
+            if (jsonObject is null || !jsonObject.TryGetValue("url", out token))
+                return false;
+            byte[] sha1;
+            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetValue("sha1", out JToken sha1Token))
+                sha1 = HashHelper.HexStringToByte(sha1Token.ToString());
+            else
+                sha1 = null;
+            watcher.Dispose();
+            return FileDownloadHelper.AddTask(task: task, webClient: client, downloadUrl: token.ToString(),
+                filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionString + ".jar"),
+                hash: sha1, hashMethod: HashHelper.HashMethod.SHA1).HasValue;
+        }
+
         /// <inheritdoc/>
         public override bool ChangeVersion(int versionIndex)
         {

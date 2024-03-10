@@ -5,7 +5,9 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
@@ -20,7 +22,7 @@ namespace WitherTorch.Core.Servers
         private const string manifestListURL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
         private const string downloadURLPrefix = "https://maven.minecraftforge.net/net/minecraftforge/forge/";
         private readonly static int downloadURLPrefixLength = downloadURLPrefix.Length;
-        private static StringBuilder URLBuilder = null;
+        private static readonly ThreadLocal<StringBuilder> LocalStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
         internal static string[] versions;
         internal static Dictionary<string, Tuple<string, string>[]> versionDict;
         protected bool _isStarted;
@@ -171,32 +173,40 @@ namespace WitherTorch.Core.Servers
 
         public void InstallSoftware(Tuple<string, string> selectedVersion)
         {
-            WebClient2 client = new WebClient2();
-            bool needInstall = false;
-            InstallTask installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            string downloadURL = null;
-            if (URLBuilder is null)
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            if (!InstallSoftware(task, selectedVersion))
             {
-                URLBuilder = new StringBuilder(downloadURLPrefix, downloadURLPrefixLength);
+                task.OnInstallFailed();
+                return;
             }
-            else
-            {
-                URLBuilder.Append(downloadURLPrefix);
-            }
-            if (mc1_3_2 is null) MojangAPI.VersionDictionary.TryGetValue("1.3.2", out mc1_3_2);
+        }
+
+        private bool InstallSoftware(InstallTask task, Tuple<string, string> selectedVersion)
+        {
+            if (selectedVersion is null || string.IsNullOrEmpty(selectedVersion.Item1) || string.IsNullOrEmpty(selectedVersion.Item2))
+                return false;
+            bool needInstall;
+            string downloadURL;
+            StringBuilder URLBuilder = LocalStringBuilder.Value;
+            URLBuilder.Append(downloadURLPrefix);
+            if (mc1_3_2 is null)
+                MojangAPI.VersionDictionary.TryGetValue("1.3.2", out mc1_3_2);
             if (GetMojangVersionInfo() < mc1_3_2) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
             {
                 URLBuilder.AppendFormat("{0}/forge-{0}-server.zip", selectedVersion.Item2);
                 downloadURL = URLBuilder.ToString();
+                needInstall = false;
             }
             else
             {
-                if (mc1_5_2 is null) MojangAPI.VersionDictionary.TryGetValue("1.5.2", out mc1_5_2);
+                if (mc1_5_2 is null)
+                    MojangAPI.VersionDictionary.TryGetValue("1.5.2", out mc1_5_2);
                 if (GetMojangVersionInfo() < mc1_5_2) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
                 {
                     URLBuilder.AppendFormat("{0}/forge-{0}-universal.zip", selectedVersion.Item2);
                     downloadURL = URLBuilder.ToString();
+                    needInstall = false;
                 }
                 else  // 1.5.2 or above > Download Installer (*.jar)
                 {
@@ -206,41 +216,36 @@ namespace WitherTorch.Core.Servers
                 }
             }
             URLBuilder.Clear();
-            if (downloadURL != null)
+            string installerLocation = needInstall ? $"forge-{selectedVersion.Item2}-installer.jar" : $"forge-{selectedVersion.Item2}.jar";
+            installerLocation = Path.Combine(ServerDirectory, installerLocation);
+            int? id = FileDownloadHelper.AddTask(task: task,
+                downloadUrl: downloadURL, filename: installerLocation,
+                percentageMultiplier: needInstall ? 0.5 : 1.0);
+            if (id.HasValue)
             {
-                string installerLocation;
                 if (needInstall)
                 {
-                    installerLocation = Path.Combine(ServerDirectory, @"forge-" + selectedVersion.Item2 + "-installer.jar");
-                }
-                else
-                {
-                    installerLocation = Path.Combine(ServerDirectory, @"forge-" + selectedVersion.Item2 + ".jar");
-                }
-                DownloadHelper helper = new DownloadHelper(
-                    task: installingTask, webClient: client, downloadUrl: downloadURL,
-                    filename: installerLocation, finishInstallTaskAfterDownload: false, percentageMultiplier: 0.5);
-                helper.DownloadCompleted += delegate
-                {
-                    if (needInstall)
+                    void AfterDownload(object sender, int sendingId)
                     {
+                        if (sendingId != id.Value)
+                            return;
+                        FileDownloadHelper.TaskFinished -= AfterDownload;
                         try
                         {
-                            RunInstaller(installingTask, installerLocation);
+                            RunInstaller(task, installerLocation);
                         }
                         catch (Exception)
                         {
-                            installingTask.OnInstallFailed();
+                            task.OnInstallFailed();
                         }
-                    }
-                    else
-                    {
-                        installingTask.OnInstallFinished();
-                    }
-                };
-                helper.Start();
+                    };
+                    FileDownloadHelper.TaskFinished += AfterDownload;
+                }
+                return true;
             }
+            return false;
         }
+
 
         private void RunInstaller(InstallTask task, string jarPath)
         {

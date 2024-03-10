@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Xml;
 using Newtonsoft.Json.Linq;
+using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -73,19 +74,22 @@ namespace WitherTorch.Core.Servers
 
         private void InstallSoftware()
         {
-            InstallTask installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            if (versionDict.TryGetValue(versionString, out string fullVersionString))
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            if (!InstallSoftware(task, versionString))
             {
-                DownloadHelper helper = new DownloadHelper(
-                    task: installingTask, webClient: new WebClient2(), downloadUrl: string.Format(downloadURL, fullVersionString),
-                    filename: Path.Combine(ServerDirectory, @"powernukkit-" + versionString + ".jar"));
-                helper.Start();
+                task.OnInstallFailed();
+                return;
             }
-            else
-            {
-                installingTask.OnInstallFailed();
-            }
+        }
+
+        private bool InstallSoftware(InstallTask task, string versionString)
+        {
+            if (string.IsNullOrEmpty(versionString) || !versionDict.TryGetValue(versionString, out string fullVersionString))
+                return false;
+            return FileDownloadHelper.AddTask(task: task,
+                downloadUrl: string.Format(downloadURL, fullVersionString),
+                filename: Path.Combine(ServerDirectory, @"powernukkit-" + versionString + ".jar")).HasValue;
         }
 
         public override AbstractProcess GetProcess()

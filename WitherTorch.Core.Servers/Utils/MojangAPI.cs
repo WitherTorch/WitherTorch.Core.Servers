@@ -47,7 +47,7 @@ namespace WitherTorch.Core.Servers.Utils
         private class VersionManifestJSONModel
         {
             [JsonProperty("versions", ItemIsReference = true)]
-            public VersionInfo[] Versions;
+            public VersionInfo[] Versions { get; set; }
         }
 
         [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
