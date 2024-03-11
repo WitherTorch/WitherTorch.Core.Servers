@@ -18,8 +18,10 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public class NeoForge : AbstractJavaEditionServer<NeoForge>
     {
-        private const string manifestListURL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml";
-        private const string downloadURL = "https://maven.neoforged.net/releases/net/neoforged/forge/{0}/forge-{0}-installer.jar";
+        private const string LegacyManifestListURL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml";
+        private const string ManifestListURL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+        private const string LegacyDownloadURL = "https://maven.neoforged.net/releases/net/neoforged/forge/{0}/forge-{0}-installer.jar";
+        private const string DownloadURL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/{0}/neoforge-{0}-installer.jar";
 
         internal static string[] versions;
         internal static Dictionary<string, Tuple<string, string>[]> versionDict;
@@ -54,51 +56,8 @@ namespace WitherTorch.Core.Servers
         internal static void LoadVersionList()
         {
             Dictionary<string, List<Tuple<string, string>>> preparingVersionDict = new Dictionary<string, List<Tuple<string, string>>>();
-            try
-            {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    XmlDocument manifestXML = new XmlDocument();
-                    manifestXML.LoadXml(manifestString);
-                    List<Tuple<string, string>> historyVersionList = null;
-                    foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
-                    {
-                        if (token.InnerText == "1.20.1-47.1.7") continue; //此版本不存在
-                        string[] versionSplits = token.InnerText.Split(new char[] { '-' });
-                        string version;
-                        unsafe
-                        {
-                            string rawVersion = versionSplits[0];
-                            fixed (char* rawVersionString = rawVersion)
-                            {
-                                char* rawVersionStringEnd = rawVersionString + rawVersion.Length;
-                                char* pointerChar = rawVersionString;
-                                while (pointerChar < rawVersionStringEnd)
-                                {
-                                    if (*pointerChar == '_')
-                                    {
-                                        *pointerChar = '-';
-                                        break;
-                                    }
-                                    pointerChar++;
-                                }
-                                version = new string(rawVersionString).Replace(".0", "");
-                            }
-                        }
-                        if (!preparingVersionDict.ContainsKey(version))
-                        {
-                            historyVersionList = new List<Tuple<string, string>>();
-                            preparingVersionDict.Add(version, historyVersionList);
-                        }
-                        historyVersionList?.Add(new Tuple<string, string>(versionSplits[1], token.InnerText));
-                    }
-                }
-            }
-            catch (Exception)
-            {
-
-            }
+            LoadLegacyVersionData(preparingVersionDict);
+            LoadVersionData(preparingVersionDict);
             versionDict = new Dictionary<string, Tuple<string, string>[]>();
             var keys = preparingVersionDict.Keys;
             List<string> versionKeys = new List<string>(keys.Count);
@@ -132,6 +91,93 @@ namespace WitherTorch.Core.Servers
                 list.Reverse();
                 versionDict.Add(key, list.ToArray());
                 preparingVersionDict[key] = null;
+            }
+        }
+
+        private static void LoadLegacyVersionData(Dictionary<string, List<Tuple<string, string>>> preparingVersionDict)
+        {
+            try
+            {
+                string manifestString = CachedDownloadClient.Instance.DownloadString(LegacyManifestListURL);
+                if (manifestString != null)
+                {
+                    XmlDocument manifestXML = new XmlDocument();
+                    manifestXML.LoadXml(manifestString);
+                    List<Tuple<string, string>> historyVersionList = null;
+                    foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
+                    {
+                        switch (token.InnerText)
+                        {
+                            case "1.20.1-47.1.7": //此版本不存在
+                                continue;
+                        }
+                        string[] versionSplits = token.InnerText.Split(new char[] { '-' });
+                        if (versionSplits.Length < 2)
+                            continue;
+                        string version;
+                        unsafe
+                        {
+                            string rawVersion = versionSplits[0];
+                            fixed (char* rawVersionString = rawVersion)
+                            {
+                                char* rawVersionStringEnd = rawVersionString + rawVersion.Length;
+                                char* pointerChar = rawVersionString;
+                                while (pointerChar < rawVersionStringEnd)
+                                {
+                                    if (*pointerChar == '_')
+                                    {
+                                        *pointerChar = '-';
+                                        break;
+                                    }
+                                    pointerChar++;
+                                }
+                                version = new string(rawVersionString).Replace(".0", "");
+                            }
+                        }
+                        if (!preparingVersionDict.ContainsKey(version))
+                        {
+                            historyVersionList = new List<Tuple<string, string>>();
+                            preparingVersionDict.Add(version, historyVersionList);
+                        }
+                        historyVersionList?.Add(new Tuple<string, string>(versionSplits[1], token.InnerText));
+                    }
+                }
+            }
+            catch (Exception)
+            {
+
+            }
+        }
+
+        private static void LoadVersionData(Dictionary<string, List<Tuple<string, string>>> preparingVersionDict)
+        {
+            try
+            {
+                string manifestString = CachedDownloadClient.Instance.DownloadString(ManifestListURL);
+                if (manifestString != null)
+                {
+                    XmlDocument manifestXML = new XmlDocument();
+                    manifestXML.LoadXml(manifestString);
+                    List<Tuple<string, string>> historyVersionList = null;
+                    foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
+                    {
+                        string[] versionSplits = token.InnerText.Split(new char[] { '-' });
+                        if (versionSplits.Length < 1)
+                            continue;
+                        string version = versionSplits[0];
+                        string mcVersion = "1." + version.Substring(0, version.LastIndexOf('.'));
+                        if (!preparingVersionDict.ContainsKey(mcVersion))
+                        {
+                            historyVersionList = new List<Tuple<string, string>>();
+                            preparingVersionDict.Add(mcVersion, historyVersionList);
+                        }
+                        historyVersionList?.Add(new Tuple<string, string>(version, token.InnerText));
+                    }
+                }
+            }
+            catch (Exception)
+            {
+
             }
         }
 
@@ -184,7 +230,11 @@ namespace WitherTorch.Core.Servers
         {
             if (selectedVersion is null || string.IsNullOrEmpty(selectedVersion.Item1) || string.IsNullOrEmpty(selectedVersion.Item2))
                 return false;
-            string downloadURL = string.Format(NeoForge.downloadURL, selectedVersion.Item2);
+            string downloadURL;
+            if (selectedVersion.Item1.StartsWith(versionString.Substring(2)))
+                downloadURL = string.Format(DownloadURL, selectedVersion.Item2);
+            else //Use Legacy URL
+                downloadURL = string.Format(LegacyDownloadURL, selectedVersion.Item2);
             string installerLocation = Path.Combine(ServerDirectory, $"neoforge-{selectedVersion.Item2}-installer.jar");
             int? id = FileDownloadHelper.AddTask(task: task,
                 downloadUrl: downloadURL, filename: installerLocation,
@@ -373,7 +423,11 @@ namespace WitherTorch.Core.Servers
                     }
                     else
                     {
-                        string argPath = "@libraries/net/neoforged/forge/" + fullVersionString;
+                        string argPath;
+                        if (fullVersionString.StartsWith(versionString.Substring(2)))
+                            argPath = "@libraries/net/neoforged/neoforge/" + fullVersionString;
+                        else
+                            argPath = "@libraries/net/neoforged/forge/" + fullVersionString;
 #if NET472
                         switch (Environment.OSVersion.Platform)
                         {
