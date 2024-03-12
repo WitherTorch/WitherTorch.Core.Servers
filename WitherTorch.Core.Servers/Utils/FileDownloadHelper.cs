@@ -313,7 +313,7 @@ namespace WitherTorch.Core.Servers.Utils
             else
                 task.ChangePercentage(percentage);
 
-            if (e.Error is object)
+            if (e.Error is object || e.Cancelled)
             {
                 Task.Factory.StartNew((obj) => EndTask(obj as DownloadInfo, failed: true), info,
                     TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach)

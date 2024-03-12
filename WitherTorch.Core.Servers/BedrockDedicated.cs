@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 using static WitherTorch.Core.Utils.WebClient2;
 
@@ -99,10 +102,10 @@ namespace WitherTorch.Core.Servers
 
         public void InstallSoftware()
         {
-            InstallTask installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            WebClient2 client = new WebClient2();
-            string downloadURL;
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            task.ChangeStatus(PreparingInstallStatus.Instance);
+            string downloadURL = null;
 #if NET472
             PlatformID platformID = Environment.OSVersion.Platform;
             switch (platformID)
@@ -113,9 +116,6 @@ namespace WitherTorch.Core.Servers
                 case PlatformID.Win32NT:
                     downloadURL = string.Format(downloadURLForWindows, versionString);
                     break;
-                default:
-                    installingTask.OnInstallFailed();
-                    return;
             }
 #elif NET5_0
             if (OperatingSystem.IsLinux())
@@ -126,39 +126,71 @@ namespace WitherTorch.Core.Servers
             {
                 downloadURL = string.Format(downloadURLForWindows, versionString);
             }
-            else
+#endif
+            if (!InstallSoftware(task, downloadURL))
             {
-                installingTask.OnInstallFailed();
+                task.OnInstallFailed();
                 return;
             }
-#endif
-            DownloadStatus status = new DownloadStatus(downloadURL, 0);
-            installingTask.ChangeStatus(status);
-            StrongBox<bool> stopFlag = new StrongBox<bool>();
-            void StopRequestedHandler(object sender, EventArgs e)
+        }
+
+        private bool InstallSoftware(InstallTask task, string downloadUrl)
+        {
+            if (string.IsNullOrEmpty(downloadUrl))
+                return false;
+            WebClient2 client = new WebClient2();
+            InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+            DownloadStatus status = new DownloadStatus(downloadUrl, 0);
+            task.ChangeStatus(status);
+            client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
+            client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
+            client.DownloadDataAsync(new Uri(downloadUrl), task);
+            return true;
+        }
+
+        private void InstallSoftware_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
+        {
+            if (!(e.UserState is InstallTask task) || !(task.Status is DownloadStatus status))
+                return;
+
+            double percentage = e.ProgressPercentage;
+            status.Percentage = percentage;
+            task.ChangePercentage(percentage * 0.5);
+        }
+
+        private void InstallSoftware_DownloadDataCompleted(object sender, DownloadDataCompletedEventArgs e)
+        {
+            if (!(sender is WebClient2 client))
+                return;
+            client.DownloadProgressChanged -= InstallSoftware_DownloadProgressChanged;
+            client.DownloadDataCompleted -= InstallSoftware_DownloadDataCompleted;
+            if (!(e.UserState is InstallTask task))
+                return;
+            if (task.Status is DownloadStatus downloadStatus)
             {
-                try
-                {
-                    client?.CancelAsync();
-                }
-                catch (Exception)
-                {
-                }
-                stopFlag.Value = true;
-                installingTask.StopRequested -= StopRequestedHandler;
+                downloadStatus.Percentage = 100;
             }
-            installingTask.StopRequested += StopRequestedHandler;
-            client.OpenReadCompleted += delegate (object sender, OpenReadCompletedEventArgs e)
+            task.ChangePercentage(50);
+            if (e.Cancelled || e.Error is object)
+            {
+                task.OnInstallFailed();
+                return;
+            }
+            client.Dispose();
+            using (InstallTaskWatcher watcher = new InstallTaskWatcher(task, null))
+            using (MemoryStream stream = new MemoryStream(e.Result))
             {
                 try
                 {
-                    using (ZipArchive archive = new ZipArchive(e.Result, ZipArchiveMode.Read, false))
+                    using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, true))
                     {
-                        System.Collections.ObjectModel.ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
-                        System.Collections.Generic.IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
+                        DecompessionStatus status = new DecompessionStatus();
+                        task.ChangeStatus(status);
+                        ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
+                        IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
                         int currentCount = 0;
                         int count = entries.Count;
-                        while (enumerator.MoveNext() && !stopFlag.Value)
+                        while (enumerator.MoveNext() && !watcher.IsStopRequested)
                         {
                             ZipArchiveEntry entry = enumerator.Current;
                             string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
@@ -188,29 +220,28 @@ namespace WitherTorch.Core.Servers
                                 }
                             }
                             currentCount++;
-                            status.Percentage = currentCount * 100.0 / count;
-                            installingTask.ChangePercentage(status.Percentage);
+                            double percentage = currentCount * 100.0 / count;
+                            status.Percentage = percentage;
+                            task.ChangePercentage(50.0 + percentage * 0.5);
                         }
                     }
-                    client.Dispose();
-                    installingTask.StopRequested -= StopRequestedHandler;
-                    if (stopFlag.Value)
+                    stream.Close();
+                    if (watcher.IsStopRequested)
                     {
-                        installingTask.OnInstallFailed();
+                        task.OnInstallFailed();
                     }
                     else
                     {
-                        installingTask.ChangePercentage(100);
-                        installingTask.OnInstallFinished();
+                        task.ChangePercentage(100);
+                        task.OnInstallFinished();
                     }
                 }
                 catch (Exception)
                 {
-                    installingTask.StopRequested -= StopRequestedHandler;
-                    installingTask.OnInstallFailed();
+                    task.OnInstallFailed();
                 }
-            };
-            client.OpenReadAsync(new Uri(downloadURL));
+            }
+            GC.Collect(1, GCCollectionMode.Optimized, false, false);
         }
 
         public override AbstractProcess GetProcess()
