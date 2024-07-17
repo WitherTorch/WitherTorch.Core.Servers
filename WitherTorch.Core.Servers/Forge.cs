@@ -7,8 +7,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
@@ -76,16 +78,14 @@ namespace WitherTorch.Core.Servers
                             string rawVersion = versionSplits[0];
                             fixed (char* rawVersionString = rawVersion)
                             {
-                                char* rawVersionStringEnd = rawVersionString + rawVersion.Length;
-                                char* pointerChar = rawVersionString;
-                                while (pointerChar < rawVersionStringEnd)
+                                char* iterator = rawVersionString;
+                                while (*iterator++ != '\0')
                                 {
-                                    if (*pointerChar == '_')
+                                    if (*iterator == '_')
                                     {
-                                        *pointerChar = '-';
+                                        *iterator = '-';
                                         break;
                                     }
-                                    pointerChar++;
                                 }
                                 version = new string(rawVersionString).Replace(".0", "");
                             }
@@ -101,7 +101,6 @@ namespace WitherTorch.Core.Servers
             }
             catch (Exception)
             {
-
             }
             versionDict = new Dictionary<string, Tuple<string, string>[]>();
             var keys = preparingVersionDict.Keys;
@@ -119,6 +118,7 @@ namespace WitherTorch.Core.Servers
                     MojangAPI.Initialized += trig;
                     if (MojangAPI.VersionDictionary is null)
                     {
+                        MojangAPI.Initialize();
                         trigger.WaitOne();
                     }
                     MojangAPI.Initialized -= trig;
