@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 using WitherTorch.Core.Utils;
 
@@ -20,13 +21,14 @@ namespace WitherTorch.Core.Servers.Utils
     {
         private const string manifestListURL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
-        private static readonly Lazy<IReadOnlyDictionary<string, VersionInfo>> _versionDictionaryLazy = new Lazy<IReadOnlyDictionary<string, VersionInfo>>(
-            LoadVersionList, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<IReadOnlyDictionary<string, VersionInfo>> _versionDictLazy = new Lazy<IReadOnlyDictionary<string, VersionInfo>>(
+            LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
 
         private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
-            () => VersionDictionary?.ToKeyArray() ?? Array.Empty<string>(), System.Threading.LazyThreadSafetyMode.PublicationOnly);
+            () => _versionDictLazy.Value.ToKeyArray(VersionComparer.Instance.Reverse())
+            , LazyThreadSafetyMode.PublicationOnly);
 
-        public static IReadOnlyDictionary<string, VersionInfo> VersionDictionary => _versionDictionaryLazy.Value;
+        public static IReadOnlyDictionary<string, VersionInfo> VersionDictionary => _versionDictLazy.Value;
         public static string[] Versions => _versionsLazy.Value;
 
         public static void Initialize()

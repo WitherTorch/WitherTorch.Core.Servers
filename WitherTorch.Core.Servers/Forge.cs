@@ -49,12 +49,9 @@ namespace WitherTorch.Core.Servers
             LazyThreadSafetyMode.PublicationOnly);
         private static readonly Lazy<IReadOnlyDictionary<string, ForgeVersionData[]>> _versionDictLazy =
             new Lazy<IReadOnlyDictionary<string, ForgeVersionData[]>>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(() =>
-        {
-            string[] result = _versionDictLazy.Value.ToKeyArray();
-            Array.Sort(result, MojangAPI.VersionComparer.Instance.Reverse());
-            return result;
-        }, LazyThreadSafetyMode.PublicationOnly);
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
+            () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse())
+        , LazyThreadSafetyMode.PublicationOnly);
 
         private string _minecraftVersion;
         private string _forgeVersion;

@@ -105,8 +105,15 @@ namespace WitherTorch.Core.Servers
                 task.ChangeStatus(PreparingInstallStatus.Instance);
                 Task.Factory.StartNew(() =>
                 {
-                    if (!InstallSoftware(task, info))
+                    try
+                    {
+                        if (!InstallSoftware(task, info))
+                            task.OnInstallFailed();
+                    }
+                    catch (Exception)
+                    {
                         task.OnInstallFailed();
+                    }
                 }, default, TaskCreationOptions.LongRunning, TaskScheduler.Current);
             }
             catch (Exception)

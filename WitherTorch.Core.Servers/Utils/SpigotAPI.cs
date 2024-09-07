@@ -19,8 +19,9 @@ namespace WitherTorch.Core.Servers.Utils
         private const string manifestListURL2 = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/{0}/maven-metadata.xml";
         private static readonly Lazy<IReadOnlyDictionary<string, string>> _versionDictLazy =
             new Lazy<IReadOnlyDictionary<string, string>>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(() => _versionDictLazy.Value.ToKeyArray(),
-            LazyThreadSafetyMode.PublicationOnly);
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
+            () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse()),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         public static IReadOnlyDictionary<string, string> VersionDictionary => _versionDictLazy.Value;
         public static string[] Versions => _versionsLazy.Value;
 

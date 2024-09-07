@@ -26,7 +26,9 @@ namespace WitherTorch.Core.Servers
                 if (IsVanillaHasServer(info))
                     result.Add(info.Id);
             }
-            return result.ToArray();
+            string[] array = result.ToArray();
+            Array.Sort(array, MojangAPI.VersionComparer.Instance.Reverse());
+            return array;
         }, System.Threading.LazyThreadSafetyMode.PublicationOnly);
 
         static JavaDedicated()
@@ -73,8 +75,15 @@ namespace WitherTorch.Core.Servers
             task.InstallFinished += onInstallFinished;
             Task.Factory.StartNew(() =>
             {
-                if (!InstallSoftware(task, versionInfo))
+                try
+                {
+                    if (!InstallSoftware(task, versionInfo))
+                        task.OnInstallFailed();
+                }
+                catch (Exception)
+                {
                     task.OnInstallFailed();
+                }
             }, default, TaskCreationOptions.LongRunning, TaskScheduler.Current);
             return true;
         }
