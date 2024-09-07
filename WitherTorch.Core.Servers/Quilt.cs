@@ -140,6 +140,7 @@ namespace WitherTorch.Core.Servers
                 _minecraftVersion = minecraftVersion;
                 _quiltLoaderVersion = quiltLoaderVersion;
                 mojangVersionInfo = null;
+                OnServerVersionChanged();
             }
             task.InstallFinished += onInstallFinished;
             QuiltInstaller.Instance.Install(task, minecraftVersion, quiltLoaderVersion);

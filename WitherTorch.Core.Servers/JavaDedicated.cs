@@ -71,6 +71,7 @@ namespace WitherTorch.Core.Servers
                 _task.InstallFinished -= onInstallFinished;
                 _version = versionInfo.Id;
                 mojangVersionInfo = versionInfo;
+                OnServerVersionChanged();
             };
             task.InstallFinished += onInstallFinished;
             Task.Factory.StartNew(() =>

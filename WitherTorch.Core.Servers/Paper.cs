@@ -169,8 +169,9 @@ namespace WitherTorch.Core.Servers
                     FileDownloadHelper.TaskFinished -= AfterDownload;
                     _version = version;
                     _build = build;
-                    mojangVersionInfo = null;
-                    string path = GetMojangVersionInfo() >= mc1_19.Value ? "./config/paper-global.yml" : "./paper.yml";
+                    MojangAPI.VersionInfo mojangVersionInfo = FindVersionInfo(version);
+                    this.mojangVersionInfo = mojangVersionInfo;
+                    string path = mojangVersionInfo >= mc1_19.Value ? "./config/paper-global.yml" : "./paper.yml";
                     path = Path.GetFullPath(Path.Combine(ServerDirectory, path));
                     IPropertyFile propertyFile = propertyFiles[3];
                     if (propertyFile is null || !string.Equals(path, Path.GetFullPath(propertyFile.GetFilePath()), StringComparison.OrdinalIgnoreCase))
@@ -184,6 +185,7 @@ namespace WitherTorch.Core.Servers
                         {
                         }
                     }
+                    OnServerVersionChanged();
                 }
                 FileDownloadHelper.TaskFinished += AfterDownload;
                 return true;

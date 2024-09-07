@@ -217,15 +217,16 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        private void InstallSoftware(string minecraftVersion, ForgeVersionData selectedVersion)
+        private bool InstallSoftware(string minecraftVersion, ForgeVersionData selectedVersion)
         {
             InstallTask task = new InstallTask(this);
             OnServerInstalling(task);
             if (!InstallSoftware(task, minecraftVersion, selectedVersion))
             {
                 task.OnInstallFailed();
-                return;
+                return false;
             }
+            return true;
         }
 
         private bool InstallSoftware(InstallTask task, string minecraftVersion, ForgeVersionData selectedVersion)
@@ -319,6 +320,7 @@ namespace WitherTorch.Core.Servers
                 _minecraftVersion = minecraftVersion;
                 _forgeVersion = forgeVersion;
                 mojangVersionInfo = null;
+                OnServerVersionChanged();
                 task.OnInstallFinished();
                 task.ChangePercentage(100);
                 innerProcess.Dispose();

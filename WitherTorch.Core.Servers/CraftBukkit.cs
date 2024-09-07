@@ -59,7 +59,9 @@ namespace WitherTorch.Core.Servers
                 if (!(sender is InstallTask _task))
                     return;
                 _task.InstallFinished -= onServerInstallFinished;
+                _version = minecraftVersion;
                 _build = build;
+                OnServerVersionChanged();
             }
             task.InstallFinished += onServerInstallFinished;
             SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion);

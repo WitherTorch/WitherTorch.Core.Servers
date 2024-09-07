@@ -10,8 +10,6 @@ using System.Xml;
 
 using WitherTorch.Core.Servers.Utils;
 
-using YamlDotNet.Core;
-
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
 #endif
@@ -203,7 +201,8 @@ namespace WitherTorch.Core.Servers
             string downloadURL;
             StringBuilder URLBuilder = localStringBuilder.Value;
             URLBuilder.Append(downloadURLPrefix);
-            if (GetMojangVersionInfo() < mc1_3_2.Value) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
+            MojangAPI.VersionInfo info = FindVersionInfo(minecraftVersion);
+            if (info < mc1_3_2.Value) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
             {
                 URLBuilder.AppendFormat("{0}/forge-{0}-server.zip", versionRaw);
                 downloadURL = URLBuilder.ToString();
@@ -211,7 +210,7 @@ namespace WitherTorch.Core.Servers
             }
             else
             {
-                if (GetMojangVersionInfo() < mc1_5_2.Value) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
+                if (info < mc1_5_2.Value) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
                 {
                     URLBuilder.AppendFormat("{0}/forge-{0}-universal.zip", versionRaw);
                     downloadURL = URLBuilder.ToString();

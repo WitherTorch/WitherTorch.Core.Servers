@@ -93,6 +93,7 @@ namespace WitherTorch.Core.Servers
                     return;
                 _task.InstallFinished -= onInstallFinished;
                 _version = version;
+                OnServerVersionChanged();
             };
             task.InstallFinished += onInstallFinished;
             if (!InstallSoftware(task, version))

@@ -151,6 +151,7 @@ namespace WitherTorch.Core.Servers
                 _minecraftVersion = minecraftVersion;
                 _fabricLoaderVersion = fabricLoaderVersion;
                 mojangVersionInfo = null;
+                OnServerVersionChanged();
             }
             task.InstallFinished += onInstallFinished;
             FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion);
