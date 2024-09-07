@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -12,8 +13,10 @@ using System.Text;
 using System.Net.Http;
 #endif
 using System.Threading;
+
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
+
 using YamlDotNet.Core.Tokens;
 
 namespace WitherTorch.Core.Servers
@@ -25,13 +28,24 @@ namespace WitherTorch.Core.Servers
     {
         private const string manifestListURL = "https://meta.fabricmc.net/v2/versions/game";
         private const string manifestListURLForLoader = "https://meta.fabricmc.net/v2/versions/loader";
-        internal static string[] versions;
-        internal static VersionStruct[] loaderVersions;
-        protected bool _isStarted;
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<VersionStruct[]> _loaderVersionsLazy =
+            new Lazy<VersionStruct[]>(LoadFabricLoaderVersions, LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<string[]> _loaderVersionKeysLazy =
+            new Lazy<string[]>(() =>
+            {
+                VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
+                int length = loaderVersions.Length;
+                if (length <= 0)
+                    return Array.Empty<string>();
+                string[] result = new string[length];
+                for (int i = 0; i < length; i++)
+                    result[i] = loaderVersions[i].Version;
+                return result;
+            }, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        protected SystemProcess process;
-        private string versionString;
-        private string fabricLoaderVersion;
+        private string _minecraftVersion;
+        private string _fabricLoaderVersion;
         private JavaRuntimeEnvironment environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
@@ -42,141 +56,117 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "fabric";
         }
 
-        public override string ServerVersion => versionString;
+        public override string ServerVersion => _minecraftVersion;
 
         private static string[] LoadVersionList()
         {
-            var comparer = MojangAPI.VersionComparer.Instance;
-            var versions = MojangAPI.Versions;
-            if (comparer is null)
-            {
-                using (AutoResetEvent trigger = new AutoResetEvent(false))
-                {
-                    void trig(object sender, EventArgs e)
-                    {
-                        trigger.Set();
-                    }
-                    MojangAPI.Initialized += trig;
-                    if (versions is null)
-                    {
-                        trigger.WaitOne();
-                    }
-                    MojangAPI.Initialized -= trig;
-                    comparer = MojangAPI.VersionComparer.Instance;
-                }
-            }
-            List<string> versionList = null;
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    VersionStruct[] array = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
-                    int count = array.Length;
-                    versionList = new List<string>(count);
-                    for (int i = 0; i < count; i++)
-                    {
-                        string version = array[i].Version;
-                        if (versions.Contains(version))
-                            versionList.Add(version);
-                    }
-                }
+                return LoadVersionListInternal() ?? Array.Empty<string>();
             }
             catch (Exception)
             {
+            }
+            return Array.Empty<string>();
+        }
 
-            }
-            if (versionList is object)
+        private static string[] LoadVersionListInternal()
+        {
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            VersionStruct[] array = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+            if (array is null)
+                return null;
+            int length = array.Length;
+            if (length <= 0)
+                return null;
+            List<string> versionList = new List<string>(length);
+            string[] versions = MojangAPI.Versions;
+            for (int i = 0; i < length; i++)
             {
-                versions = versionList.ToArray();
-                Array.Sort(versions, comparer);
-                Array.Reverse(versions);
-                return Fabric.versions = versions;
+                string version = array[i].Version;
+                if (versions.Contains(version))
+                    versionList.Add(version);
             }
-            else
-            {
-                return Fabric.versions = null;
-            }
+            Array.Sort(versions, MojangAPI.VersionComparer.Instance.Reverse());
+            return versions;
         }
 
         private static VersionStruct[] LoadFabricLoaderVersions()
         {
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
-                if (manifestString is null)
-                    return loaderVersions = null;
-                else
-                    return loaderVersions = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+                return LoadFabricLoaderVersionsInternal() ?? Array.Empty<VersionStruct>();
             }
             catch (Exception)
             {
-                return loaderVersions = null;
             }
+            return Array.Empty<VersionStruct>();
+        }
+
+        private static VersionStruct[] LoadFabricLoaderVersionsInternal()
+        {
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            return JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
         }
 
         public static string GetLatestStableFabricLoaderVersion()
         {
-            VersionStruct[] loaderVersions = Fabric.loaderVersions ?? LoadFabricLoaderVersions();
-            if (loaderVersions is object)
+            VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
+            int count = loaderVersions.Length;
+            for (int i = 0; i < count; i++)
             {
-                int count = loaderVersions.Length;
-                for (int i = 0; i < count; i++)
-                {
-                    VersionStruct loaderVersion = loaderVersions[i];
-                    if (loaderVersion.Stable)
-                        return loaderVersion.Version;
-                }
-                return count > 0 ? loaderVersions[0].Version : null;
+                VersionStruct loaderVersion = loaderVersions[i];
+                if (loaderVersion.Stable)
+                    return loaderVersion.Version;
             }
-            return null;
+            return count > 0 ? loaderVersions[0].Version : null;
         }
 
         public override bool ChangeVersion(int versionIndex)
             => ChangeVersion(versionIndex, GetLatestStableFabricLoaderVersion());
 
-        public bool ChangeVersion(int versionIndex, string fabricVersion)
+        public bool ChangeVersion(int versionIndex, string fabricLoaderVersion)
         {
-            string[] versions = Fabric.versions ?? LoadVersionList();
-            if (versions is object)
-            {
-                versionString = versions[versionIndex];
-                BuildVersionInfo();
-                fabricLoaderVersion = fabricVersion;
-                _cache = null;
-                InstallSoftware(fabricVersion);
-                return true;
-            }
-            else
-            {
+            return InstallSoftware(_versionsLazy.Value[versionIndex], fabricLoaderVersion);
+        }
+
+        private bool InstallSoftware(string minecraftVersion)
+            => InstallSoftware(minecraftVersion, GetLatestStableFabricLoaderVersion());
+
+        private bool InstallSoftware(string minecraftVersion, string fabricLoaderVersion)
+        {
+            if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(fabricLoaderVersion))
                 return false;
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            void onInstallFinished(object sender, EventArgs e)
+            {
+                if (!(sender is InstallTask _task))
+                    return;
+                task.InstallFinished -= onInstallFinished;
+                _minecraftVersion = minecraftVersion;
+                _fabricLoaderVersion = fabricLoaderVersion;
+                mojangVersionInfo = null;
             }
-        }
-
-        InstallTask installingTask;
-
-        private void InstallSoftware(string fabricVersion)
-        {
-            installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            FabricInstaller.Instance.Install(installingTask, versionString, fabricVersion);
-        }
-
-        public override AbstractProcess GetProcess()
-        {
-            return process;
+            task.InstallFinished += onInstallFinished;
+            FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion);
+            return true;
         }
 
         string _cache;
         public override string GetReadableVersion()
         {
-            return _cache ?? (_cache = versionString + "-" + fabricLoaderVersion);
+            return _cache ?? (_cache = _minecraftVersion + "-" + _fabricLoaderVersion);
         }
 
         /// <summary>
         /// 取得 Fabric Loader 的版本號
         /// </summary>
-        public string FabricLoaderVersion => fabricLoaderVersion;
+        public string FabricLoaderVersion => _fabricLoaderVersion;
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
         {
@@ -190,28 +180,12 @@ namespace WitherTorch.Core.Servers
 
         public override string[] GetSoftwareVersions()
         {
-            return versions ?? LoadVersionList();
+            return _versionsLazy.Value;
         }
 
-        static string[] loaderVersionKeys;
         public static string[] GetLoaderVersions()
         {
-            string[] loaderVersionKeys = Fabric.loaderVersionKeys;
-            if (loaderVersionKeys is null)
-            {
-                VersionStruct[] loaderVersions = Fabric.loaderVersions ?? LoadFabricLoaderVersions();
-                if (loaderVersions is object)
-                {
-                    int length = loaderVersions.Length;
-                    loaderVersionKeys = new string[length];
-                    for (int i = 0; i < length; i++)
-                    {
-                        loaderVersionKeys[i] = loaderVersions[i].Version;
-                    }
-                    Fabric.loaderVersionKeys = loaderVersionKeys;
-                }
-            }
-            return loaderVersionKeys;
+            return _loaderVersionKeysLazy.Value;
         }
 
         public override void RunServer(RuntimeEnvironment environment)
@@ -242,7 +216,7 @@ namespace WitherTorch.Core.Servers
                             ErrorDialog = true,
                             UseShellExecute = false,
                         };
-                        process.StartProcess(startInfo);
+                        _process.StartProcess(startInfo);
                     }
                 }
             }
@@ -255,17 +229,18 @@ namespace WitherTorch.Core.Servers
             {
                 if (force)
                 {
-                    process.Kill();
+                    _process.Kill();
                 }
                 else
                 {
-                    process.InputCommand("stop");
+                    _process.InputCommand("stop");
                 }
             }
         }
-        protected override void BuildVersionInfo()
+
+        protected override MojangAPI.VersionInfo BuildVersionInfo()
         {
-            MojangAPI.VersionDictionary.TryGetValue(versionString, out mojangVersionInfo);
+            return FindVersionInfo(_minecraftVersion);
         }
 
         /// <inheritdoc/>
@@ -273,9 +248,6 @@ namespace WitherTorch.Core.Servers
         {
             try
             {
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
             }
             catch (Exception)
@@ -288,22 +260,22 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
+            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            string minecraftVersion = serverInfoJson["version"]?.ToString();
+            if (string.IsNullOrEmpty(minecraftVersion))
+                return false;
+            _minecraftVersion = minecraftVersion; 
+            JToken fabricVerNode = serverInfoJson["fabric-version"];
+            if (fabricVerNode?.Type == JTokenType.String)
+            {
+                _fabricLoaderVersion = fabricVerNode.ToString();
+            }
+            else
+            {
+                return false;
+            }
             try
             {
-                JsonPropertyFile serverInfoJson = ServerInfoJson;
-                versionString = serverInfoJson["version"].ToString();
-                JToken fabricVerNode = serverInfoJson["fabric-version"];
-                if (fabricVerNode?.Type == JTokenType.String)
-                {
-                    fabricLoaderVersion = fabricVerNode.ToString();
-                }
-                else
-                {
-                    return false;
-                }
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
                 string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
                 string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
@@ -332,27 +304,26 @@ namespace WitherTorch.Core.Servers
         protected override bool BeforeServerSaved()
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
-            serverInfoJson["version"] = versionString;
-            serverInfoJson["fabric-version"] = fabricLoaderVersion;
-            if (environment != null)
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
-            else
+            serverInfoJson["version"] = _minecraftVersion;
+            serverInfoJson["fabric-version"] = _fabricLoaderVersion;
+            if (environment is null)
             {
                 serverInfoJson["java.path"] = null;
                 serverInfoJson["java.preArgs"] = null;
                 serverInfoJson["java.postArgs"] = null;
+            }
+            else
+            {
+                serverInfoJson["java.path"] = environment.JavaPath;
+                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
+                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
             }
             return true;
         }
 
         public override bool UpdateServer()
         {
-            if (versions is null) LoadVersionList();
-            return ChangeVersion(Array.IndexOf(versions, versionString));
+            return InstallSoftware(_minecraftVersion);
         }
     }
 }

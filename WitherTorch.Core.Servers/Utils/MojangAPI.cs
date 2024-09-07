@@ -1,11 +1,15 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+
+using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+
 using WitherTorch.Core.Utils;
+
+#if NET6_0_OR_GREATER
+using System.Collections.Frozen;
+#endif
 
 namespace WitherTorch.Core.Servers.Utils
 {
@@ -15,36 +19,23 @@ namespace WitherTorch.Core.Servers.Utils
     public static class MojangAPI
     {
         private const string manifestListURL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-        public static Dictionary<string, VersionInfo> VersionDictionary { get; private set; }
 
-        private static string[] versions;
-        public static string[] Versions
-        {
-            get
-            {
-                if (versions is null)
-                {
-                    LoadVersionList();
-                }
-                return versions;
-            }
-        }
+        private static readonly Lazy<IReadOnlyDictionary<string, VersionInfo>> _versionDictionaryLazy = new Lazy<IReadOnlyDictionary<string, VersionInfo>>(
+            LoadVersionList, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
 
-        private static string[] javaDedicatedVersions;
-        internal static string[] JavaDedicatedVersions
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
+            () => VersionDictionary?.ToKeyArray() ?? Array.Empty<string>(), System.Threading.LazyThreadSafetyMode.PublicationOnly);
+
+        public static IReadOnlyDictionary<string, VersionInfo> VersionDictionary => _versionDictionaryLazy.Value;
+        public static string[] Versions => _versionsLazy.Value;
+
+        public static void Initialize()
         {
-            get
-            {
-                if (javaDedicatedVersions is null)
-                {
-                    LoadVersionList();
-                }
-                return javaDedicatedVersions;
-            }
+            string[] _ = _versionsLazy.Value;
         }
 
         [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
-        private class VersionManifestJSONModel
+        private class VersionManifestModel
         {
             [JsonProperty("versions", ItemIsReference = true)]
             public VersionInfo[] Versions { get; set; }
@@ -102,85 +93,56 @@ namespace WitherTorch.Core.Servers.Utils
             }
         }
 
-        public static event EventHandler Initialized;
-
-        volatile static bool isInInitialize = false;
-        public static void Initialize()
-        {
-            if (isInInitialize) return;
-            isInInitialize = true;
-            if (VersionDictionary is null) LoadVersionList();
-            Initialized?.Invoke(null, EventArgs.Empty);
-            isInInitialize = false;
-        }
-        public static void LoadVersionList()
+        private static IReadOnlyDictionary<string, VersionInfo> LoadVersionList()
         {
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    VersionManifestJSONModel manifestJSON;
-                    using (JsonTextReader reader = new JsonTextReader(new StringReader(manifestString)))
-                    {
-                        try
-                        {
-                            manifestJSON = GlobalSerializers.JsonSerializer.Deserialize<VersionManifestJSONModel>(reader);
-                        }
-                        catch (Exception)
-                        {
-                            manifestJSON = null;
-                        }
-                        reader.Close();
-                    }
-                    if (manifestJSON != null)
-                    {
-                        int count = manifestJSON.Versions.Length;
-                        if (count > 0)
-                        {
-                            Dictionary<string, VersionInfo> versionPairs = new Dictionary<string, VersionInfo>(count);
-                            string[] versions = new string[count];
-                            string[] versions2 = new string[count];
-                            int j = 0, k = 0;
-                            for (int i = 0; i < count; i++)
-                            {
-                                VersionInfo versionInfo = manifestJSON.Versions[i];
-                                if (IsValidTime(versionInfo.ReleaseTime))
-                                {
-                                    string id = versionInfo.Id;
-                                    versionPairs.Add(id, versionInfo);
-                                    versions[j++] = id;
-                                    if (IsVanillaHasServer(versionInfo))
-                                        versions2[k++] = id;
-                                }
-                            }
-                            VersionDictionary = versionPairs;
-                            MojangAPI.versions = Subarray(versions, j);
-                            javaDedicatedVersions = Subarray(versions2, k);
-                        }
-                        else
-                        {
-                            VersionDictionary = null;
-                            versions = null;
-                            javaDedicatedVersions = null;
-                        }
-                    }
-                }
+                return LoadVersionListInternal() ?? EmptyDictionary<string, VersionInfo>.Instance;
             }
             catch (Exception)
             {
             }
-            GC.Collect(0, GCCollectionMode.Optimized);
+            GC.Collect(2, GCCollectionMode.Optimized);
+            return EmptyDictionary<string, VersionInfo>.Instance;
         }
 
-        private static string[] Subarray(string[] original, int count)
+        private static IReadOnlyDictionary<string, VersionInfo> LoadVersionListInternal()
         {
-            string[] result = new string[count];
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            VersionManifestModel manifestJSON;
+            using (JsonTextReader reader = new JsonTextReader(new StringReader(manifestString)))
+            {
+                try
+                {
+                    manifestJSON = GlobalSerializers.JsonSerializer.Deserialize<VersionManifestModel>(reader);
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+                reader.Close();
+            }
+            if (manifestJSON is null)
+                return null;
+            VersionInfo[] versions = manifestJSON.Versions;
+            int count = versions.Length;
+            if (count <= 0)
+                return null;
+            Dictionary<string, VersionInfo> result = new Dictionary<string, VersionInfo>(count);
             for (int i = 0; i < count; i++)
             {
-                result[i] = original[i];
+                VersionInfo versionInfo = manifestJSON.Versions[i];
+                if (!IsValidTime(versionInfo.ReleaseTime))
+                    continue;
+                result.Add(versionInfo.Id, versionInfo);
             }
+#if NET6_0_OR_GREATER
+            return FrozenDictionary.ToFrozenDictionary(result);
+#else
             return result;
+#endif
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -191,33 +153,14 @@ namespace WitherTorch.Core.Servers.Utils
             return month != 4 || day != 1; // 過濾愚人節版本
         }
 
-        private static bool IsVanillaHasServer(VersionInfo versionInfo)
-        {
-            DateTime time = versionInfo.ReleaseTime;
-            int year = time.Year;
-            int month = time.Month;
-            int day = time.Day;
-            if (year > 2012 || (year == 2012 && (month > 3 || (month == 3 && day >= 29)))) //1.2.5 開始有 server 版本 (1.2.5 發布日期: 2012/3/29)
-            {
-                return true;
-            }
-            return false;
-        }
-
         public sealed class VersionComparer : IComparer<string>
         {
+            private static readonly Lazy<VersionComparer> _instLazy = new Lazy<VersionComparer>(() => new VersionComparer(),
+                System.Threading.LazyThreadSafetyMode.PublicationOnly);
+
+            public static VersionComparer Instance => _instLazy.Value;
+
             private VersionComparer() { }
-
-            private static VersionComparer _instance = null;
-
-            public static VersionComparer Instance
-            {
-                get
-                {
-                    if (_instance is null && VersionDictionary != null) _instance = new VersionComparer();
-                    return _instance;
-                }
-            }
 
             public int Compare(string x, string y)
             {

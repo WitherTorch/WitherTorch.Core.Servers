@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-#if NET472
-using System.Text;
-#endif
+using System.Net.Http;
+using System.Threading;
 using System.Xml;
-using WitherTorch.Core.Utils;
+
+#if NET6_0_OR_GREATER
+using System.Collections.Frozen;
+#endif
 
 namespace WitherTorch.Core.Servers.Utils
 {
@@ -14,110 +15,94 @@ namespace WitherTorch.Core.Servers.Utils
     /// </summary>
     public static class SpigotAPI
     {
-#if NET472
-        private const string UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36";
-#endif
         private const string manifestListURL = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/maven-metadata.xml";
         private const string manifestListURL2 = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/{0}/maven-metadata.xml";
+        private static readonly Lazy<IReadOnlyDictionary<string, string>> _versionDictLazy =
+            new Lazy<IReadOnlyDictionary<string, string>>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(() => _versionDictLazy.Value.ToKeyArray(),
+            LazyThreadSafetyMode.PublicationOnly);
+        public static IReadOnlyDictionary<string, string> VersionDictionary => _versionDictLazy.Value;
+        public static string[] Versions => _versionsLazy.Value;
 
-        private static string[] versions;
-        public static string[] Versions
-        {
-            get
-            {
-                if (versions is null)
-                {
-                    LoadVersionList();
-                }
-                return versions;
-            }
-        }
-        public static Dictionary<string, string> VersionDictionary { get; private set; }
-
-        private static volatile bool _isInInitialize = false;
         public static void Initialize()
         {
-            if (!_isInInitialize)
-            {
-                _isInInitialize = true;
-                if (Versions is null)
-                {
-                    LoadVersionList();
-                }
-                _isInInitialize = false;
-            }
+            var _ = _versionsLazy.Value;
         }
 
-        internal static void LoadVersionList()
+        private static IReadOnlyDictionary<string, string> LoadVersionList()
         {
-            Dictionary<string, string> preparingVersionDict = new Dictionary<string, string>();
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    XmlDocument manifestXML = new XmlDocument();
-                    manifestXML.LoadXml(manifestString);
-                    foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
-                    {
-                        string[] versionSplits = token.InnerText.Split('-');
-                        string version = versionSplits[0];
-                        for (int i = 1; i < versionSplits.Length; i++)
-                        {
-                            if (versionSplits[i][0] == 'R' || versionSplits[i] == "SNAPSHOT")
-                                break;
-                            version += "-" + versionSplits[i];
-                        }
-                        if (!preparingVersionDict.ContainsKey(version))
-                        {
-                            preparingVersionDict.Add(version, token.InnerText);
-                        }
-                    }
-                }
+                return LoadVersionListInternal() ?? EmptyDictionary<string, string>.Instance;
             }
             catch (Exception)
             {
+            }
+            return EmptyDictionary<string, string>.Instance;
+        }
 
-            }
-            VersionDictionary = new Dictionary<string, string>();
-            foreach (var item in preparingVersionDict.Reverse())
+        private static IReadOnlyDictionary<string, string> LoadVersionListInternal()
+        {
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            XmlDocument manifestXML = new XmlDocument();
+            manifestXML.LoadXml(manifestString);
+
+            Dictionary<string, string> result = new Dictionary<string, string>();
+            foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
             {
-                VersionDictionary.Add(item.Key, item.Value);
+                string versionString = token.InnerText;
+                string[] versionSplits = versionString.Split('-');
+                string version = versionSplits[0];
+                for (int i = 1; i < versionSplits.Length; i++)
+                {
+                    if (versionSplits[i][0] == 'R' || versionSplits[i] == "SNAPSHOT")
+                        break;
+                    version += "-" + versionSplits[i];
+                }
+                if (result.ContainsKey(version))
+                    continue;
+                result.Add(version, versionString);
             }
-            versions = VersionDictionary.Keys.ToArray();
+
+#if NET6_0_OR_GREATER
+            return result.ToFrozenDictionary();
+#else
+            return result;
+#endif
         }
 
         public static int GetBuildNumber(string version)
         {
-            if (VersionDictionary.ContainsKey(version))
+            if (!VersionDictionary.TryGetValue(version, out version))
+                return -1;
+            try
             {
-                string url = string.Format(manifestListURL2, VersionDictionary[version]);
-                try
-                {
-                    XmlDocument manifestXML = new XmlDocument();
-#if NET472
-                    using (WebClient2 client = new WebClient2())
-                    {
-                        client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-                        manifestXML.LoadXml(client.DownloadString(url));
-                    }
-#elif NET5_0
-                    using (System.Net.Http.HttpClient client = new System.Net.Http.HttpClient())
-                    {
-                        manifestXML.LoadXml(client.GetStringAsync(manifestListURL).Result);
-                    }
-#endif
-                    string buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.Value;
-                    if (buildNumber != null && int.TryParse(buildNumber, out int result))
-                    {
-                        return result;
-                    }
-                }
-                catch (Exception)
-                {
-
-                }
+                return GetBuildNumberInternal(string.Format(manifestListURL2, version));
             }
+            catch (Exception)
+            {
+            }
+            return -1;
+        }
+
+        private static int GetBuildNumberInternal(string url)
+        {
+            string manifestString; 
+            using (HttpClient client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
+                manifestString = client.GetStringAsync(url).Result;
+            }
+            if (!string.IsNullOrEmpty(manifestString))
+                return -1;
+
+            XmlDocument manifestXML = new XmlDocument();
+            manifestXML.LoadXml(manifestString);
+            string buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.Value;
+            if (!string.IsNullOrEmpty(buildNumber) && int.TryParse(buildNumber, out int result))
+                return result;
             return -1;
         }
     }

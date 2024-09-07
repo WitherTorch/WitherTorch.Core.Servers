@@ -113,7 +113,7 @@ namespace WitherTorch.Core.Servers.Utils
         }
         public delegate void UpdateProgressEventHandler(int progress);
 
-        public void Install(InstallTask task, string minecraftVersion, string fabricVersion)
+        public void Install(InstallTask task, string minecraftVersion, string fabricLoaderVersion)
         {
             InstallTask installTask = task;
             FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
@@ -143,7 +143,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     installTask.ChangePercentage(50);
                     installTask.OnStatusChanged();
-                    DoInstall(installTask, status, minecraftVersion, fabricVersion);
+                    DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion);
                 };
                 Update(installTask, newVersion);
             }
@@ -151,11 +151,11 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 installTask.ChangePercentage(50);
                 installTask.OnStatusChanged();
-                DoInstall(installTask, status, minecraftVersion, fabricVersion);
+                DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion);
             }
         }
 
-        private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricVersion)
+        private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion)
         {
             InstallTask installTask = task;
             FabricInstallerStatus installStatus = status;
@@ -164,7 +164,7 @@ namespace WitherTorch.Core.Servers.Utils
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft", buildToolFileInfo.FullName, minecraftVersion, fabricVersion, installTask.Owner.ServerDirectory),
+                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft", buildToolFileInfo.FullName, minecraftVersion, fabricLoaderVersion, installTask.Owner.ServerDirectory),
                 WorkingDirectory = workingDirectoryInfo.FullName,
                 CreateNoWindow = true,
                 ErrorDialog = true,

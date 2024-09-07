@@ -4,12 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-#if NET472
-using System.Net;
-using System.Text;
-#elif NET5_0
-using System.Net.Http;
-#endif
 using System.Threading;
 using WitherTorch.Core.Servers.Utils;
 
@@ -20,20 +14,29 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public class Quilt : AbstractJavaEditionServer<Quilt>
     {
-#if NET472
-        private const string UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36";
-#endif
         private const string manifestListURL = "https://meta.quiltmc.org/v3/versions/game";
         private const string manifestListURLForLoader = "https://meta.quiltmc.org/v3/versions/loader";
-        internal static string[] versions;
-        internal static VersionStruct[] loaderVersions;
-        protected bool _isStarted;
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<VersionStruct[]> _loaderVersionsLazy =
+            new Lazy<VersionStruct[]>(LoadQuiltLoaderVersions, LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<string[]> _loaderVersionKeysLazy =
+            new Lazy<string[]>(() =>
+            {
+                VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
+                int length = loaderVersions.Length;
+                if (length <= 0)
+                    return Array.Empty<string>();
+                string[] result = new string[length];
+                for (int i = 0; i < length; i++)
+                    result[i] = loaderVersions[i].Version;
+                return result;
+            }, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        protected SystemProcess process;
-        private string versionString;
-        private string quiltLoaderVersion;
+        private string _minecraftVersion;
+        private string _quiltLoaderVersion;
         private JavaRuntimeEnvironment environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
+
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
         static Quilt()
@@ -42,141 +45,117 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "quilt";
         }
 
-        public override string ServerVersion => versionString;
+        public override string ServerVersion => _minecraftVersion;
 
         private static string[] LoadVersionList()
         {
-            var comparer = MojangAPI.VersionComparer.Instance;
-            var versions = MojangAPI.Versions;
-            if (comparer is null)
-            {
-                using (AutoResetEvent trigger = new AutoResetEvent(false))
-                {
-                    void trig(object sender, EventArgs e)
-                    {
-                        trigger.Set();
-                    }
-                    MojangAPI.Initialized += trig;
-                    if (versions is null)
-                    {
-                        trigger.WaitOne();
-                    }
-                    MojangAPI.Initialized -= trig;
-                    comparer = MojangAPI.VersionComparer.Instance;
-                }
-            }
-            List<string> versionList = null;
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    VersionStruct[] array = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
-                    int count = array.Length;
-                    versionList = new List<string>(count);
-                    for (int i = 0; i < count; i++)
-                    {
-                        string version = array[i].Version;
-                        if (versions.Contains(version))
-                            versionList.Add(version);
-                    }
-                }
+                return LoadVersionListInternal() ?? Array.Empty<string>();
             }
             catch (Exception)
             {
+            }
+            return Array.Empty<string>();
+        }
 
-            }
-            if (versionList is object)
+        private static string[] LoadVersionListInternal()
+        {
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            VersionStruct[] array = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+            if (array is null)
+                return null;
+            int length = array.Length;
+            if (length <= 0)
+                return null;
+            List<string> versionList = new List<string>(length);
+            string[] versions = MojangAPI.Versions;
+            for (int i = 0; i < length; i++)
             {
-                versions = versionList.ToArray();
-                Array.Sort(versions, comparer);
-                Array.Reverse(versions);
-                return Quilt.versions = versions;
+                string version = array[i].Version;
+                if (versions.Contains(version))
+                    versionList.Add(version);
             }
-            else
-            {
-                return Quilt.versions = null;
-            }
+            Array.Sort(versions, MojangAPI.VersionComparer.Instance.Reverse());
+            return versions;
         }
 
         private static VersionStruct[] LoadQuiltLoaderVersions()
         {
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
-                if (manifestString is null)
-                    return loaderVersions = null;
-                else
-                    return loaderVersions = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+                return LoadQuiltLoaderVersionsInternal() ?? Array.Empty<VersionStruct>();
             }
             catch (Exception)
             {
-                return loaderVersions = null;
             }
+            return Array.Empty<VersionStruct>();
+        }
+
+        private static VersionStruct[] LoadQuiltLoaderVersionsInternal()
+        {
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            return JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
         }
 
         public static string GetLatestStableQuiltLoaderVersion()
         {
-            VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
-            if (loaderVersions is object)
+            VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
+            int count = loaderVersions.Length;
+            for (int i = 0; i < count; i++)
             {
-                int count = loaderVersions.Length;
-                for (int i = 0; i < count; i++)
-                {
-                    VersionStruct loaderVersion = loaderVersions[i];
-                    if (loaderVersion.Stable)
-                        return loaderVersion.Version;
-                }
-                return count > 0 ? loaderVersions[0].Version : null;
+                VersionStruct loaderVersion = loaderVersions[i];
+                if (loaderVersion.Stable)
+                    return loaderVersion.Version;
             }
-            return null;
+            return count > 0 ? loaderVersions[0].Version : null;
         }
 
         public override bool ChangeVersion(int versionIndex)
             => ChangeVersion(versionIndex, GetLatestStableQuiltLoaderVersion());
 
-        public bool ChangeVersion(int versionIndex, string quiltVersion)
+        public bool ChangeVersion(int versionIndex, string quiltLoaderVersion)
         {
-            string[] versions = Quilt.versions ?? LoadVersionList();
-            if (versions is object)
-            {
-                versionString = versions[versionIndex];
-                BuildVersionInfo();
-                this.quiltLoaderVersion = quiltVersion;
-                _cache = null;
-                InstallSoftware(quiltVersion);
-                return true;
-            }
-            else
-            {
+            return InstallSoftware(_versionsLazy.Value[versionIndex], quiltLoaderVersion);
+        }
+
+        private bool InstallSoftware(string minecraftVersion)
+            => InstallSoftware(minecraftVersion, GetLatestStableQuiltLoaderVersion());
+
+        private bool InstallSoftware(string minecraftVersion, string quiltLoaderVersion)
+        {
+            if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(quiltLoaderVersion))
                 return false;
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            void onInstallFinished(object sender, EventArgs e)
+            {
+                if (!(sender is InstallTask _task))
+                    return;
+                task.InstallFinished -= onInstallFinished;
+                _minecraftVersion = minecraftVersion;
+                _quiltLoaderVersion = quiltLoaderVersion;
+                mojangVersionInfo = null;
             }
-        }
-
-        InstallTask installingTask;
-
-        private void InstallSoftware(string quiltVersion)
-        {
-            installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            QuiltInstaller.Instance.Install(installingTask, versionString, quiltVersion);
-        }
-
-        public override AbstractProcess GetProcess()
-        {
-            return process;
+            task.InstallFinished += onInstallFinished;
+            QuiltInstaller.Instance.Install(task, minecraftVersion, quiltLoaderVersion);
+            return true;
         }
 
         string _cache;
         public override string GetReadableVersion()
         {
-            return _cache ?? (_cache = versionString + "-" + quiltLoaderVersion);
+            return _cache ?? (_cache = _minecraftVersion + "-" + _quiltLoaderVersion);
         }
 
         /// <summary>
         /// 取得 Quilt Loader 的版本號
         /// </summary>
-        public string QuiltLoaderVersion => quiltLoaderVersion;
+        public string QuiltLoaderVersion => _quiltLoaderVersion;
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
         {
@@ -190,28 +169,12 @@ namespace WitherTorch.Core.Servers
 
         public override string[] GetSoftwareVersions()
         {
-            return versions ?? LoadVersionList();
+            return _versionsLazy.Value;
         }
 
-        static string[] loaderVersionKeys;
         public static string[] GetLoaderVersions()
         {
-            string[] loaderVersionKeys = Quilt.loaderVersionKeys;
-            if (loaderVersionKeys is null)
-            {
-                VersionStruct[] loaderVersions = Quilt.loaderVersions ?? LoadQuiltLoaderVersions();
-                if (loaderVersions is object)
-                {
-                    int length = loaderVersions.Length;
-                    loaderVersionKeys = new string[length];
-                    for (int i = 0; i < length; i++)
-                    {
-                        loaderVersionKeys[i] = loaderVersions[i].Version;
-                    }
-                    Quilt.loaderVersionKeys = loaderVersionKeys;
-                }
-            }
-            return loaderVersionKeys;
+            return _loaderVersionKeysLazy.Value;
         }
 
         public override void RunServer(RuntimeEnvironment environment)
@@ -242,7 +205,7 @@ namespace WitherTorch.Core.Servers
                             ErrorDialog = true,
                             UseShellExecute = false,
                         };
-                        process.StartProcess(startInfo);
+                        _process.StartProcess(startInfo);
                     }
                 }
             }
@@ -255,17 +218,17 @@ namespace WitherTorch.Core.Servers
             {
                 if (force)
                 {
-                    process.Kill();
+                    _process.Kill();
                 }
                 else
                 {
-                    process.InputCommand("stop");
+                    _process.InputCommand("stop");
                 }
             }
         }
-        protected override void BuildVersionInfo()
+        protected override MojangAPI.VersionInfo BuildVersionInfo()
         {
-            MojangAPI.VersionDictionary.TryGetValue(versionString, out mojangVersionInfo);
+            return FindVersionInfo(_minecraftVersion);
         }
 
         /// <inheritdoc/>
@@ -273,9 +236,6 @@ namespace WitherTorch.Core.Servers
         {
             try
             {
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
             }
             catch (Exception)
@@ -288,22 +248,22 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
+            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            string minecraftVersion = serverInfoJson["version"]?.ToString();
+            if (string.IsNullOrEmpty(minecraftVersion))
+                return false;
+            _minecraftVersion = minecraftVersion;
+            JToken quiltVerNode = serverInfoJson["quilt-version"];
+            if (quiltVerNode?.Type == JTokenType.String)
+            {
+                _quiltLoaderVersion = quiltVerNode.ToString();
+            }
+            else
+            {
+                return false;
+            }
             try
             {
-                JsonPropertyFile serverInfoJson = ServerInfoJson;
-                versionString = serverInfoJson["version"].ToString();
-                JToken quiltVerNode = serverInfoJson["quilt-version"];
-                if (quiltVerNode?.Type == JTokenType.String)
-                {
-                    quiltLoaderVersion = quiltVerNode.ToString();
-                }
-                else
-                {
-                    return false;
-                }
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
                 string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
                 string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
@@ -332,27 +292,26 @@ namespace WitherTorch.Core.Servers
         protected override bool BeforeServerSaved()
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
-            serverInfoJson["version"] = versionString;
-            serverInfoJson["quilt-version"] = quiltLoaderVersion;
-            if (environment != null)
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
-            else
+            serverInfoJson["version"] = _minecraftVersion;
+            serverInfoJson["quilt-version"] = _quiltLoaderVersion;
+            if (environment is null)
             {
                 serverInfoJson["java.path"] = null;
                 serverInfoJson["java.preArgs"] = null;
                 serverInfoJson["java.postArgs"] = null;
+            }
+            else
+            {
+                serverInfoJson["java.path"] = environment.JavaPath;
+                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
+                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
             }
             return true;
         }
 
         public override bool UpdateServer()
         {
-            if (versions is null) LoadVersionList();
-            return ChangeVersion(Array.IndexOf(versions, versionString));
+            return InstallSoftware(_minecraftVersion);
         }
     }
 }

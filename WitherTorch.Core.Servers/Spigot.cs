@@ -11,15 +11,14 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public class Spigot : AbstractJavaEditionServer<Spigot>
     {
-        protected bool _isStarted;
-        readonly IPropertyFile[] propertyFiles = new IPropertyFile[3];
+        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[3];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
         public YamlPropertyFile BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
         public YamlPropertyFile SpigotYMLFile => propertyFiles[2] as YamlPropertyFile;
-        private string versionString;
-        private int build = -1;
+
+        private string _version;
+        private int _build = -1;
         private JavaRuntimeEnvironment environment;
-        protected SystemProcess process;
 
         static Spigot()
         {
@@ -27,24 +26,21 @@ namespace WitherTorch.Core.Servers
             SoftwareID = "spigot";
         }
 
-        public override string ServerVersion => versionString;
-
-        InstallTask installingTask;
-        private void InstallSoftware()
-        {
-            installingTask = new InstallTask(this);
-            OnServerInstalling(installingTask);
-            SpigotBuildTools.Instance.Install(installingTask, SpigotBuildTools.BuildTarget.Spigot, GetReadableVersion());
-        }
+        public override string ServerVersion => _version;
 
         public override bool ChangeVersion(int versionIndex)
         {
+            return InstallSoftware(SpigotAPI.Versions[versionIndex]);
+        }
+
+        private bool InstallSoftware(string version)
+        {
             try
             {
-                versionString = SpigotAPI.Versions[versionIndex];
-                BuildVersionInfo();
-                build = SpigotAPI.GetBuildNumber(versionString);
-                InstallSoftware();
+                int build = SpigotAPI.GetBuildNumber(version);
+                if (build < 0)
+                    return false;
+                InstallSoftware(version, build);
             }
             catch (Exception)
             {
@@ -53,16 +49,25 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        /// <inheritdoc/>
-        public override AbstractProcess GetProcess()
+        private void InstallSoftware(string minecraftVersion, int build)
         {
-            return process;
+            InstallTask task = new InstallTask(this);
+            OnServerInstalling(task);
+            void onServerInstallFinished(object sender, EventArgs e)
+            {
+                if (!(sender is InstallTask _task))
+                    return;
+                _task.InstallFinished -= onServerInstallFinished;
+                _build = build;
+            }
+            task.InstallFinished += onServerInstallFinished;
+            SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.Spigot, minecraftVersion);
         }
 
         /// <inheritdoc/>
         public override string GetReadableVersion()
         {
-            return versionString;
+            return _version;
         }
 
         /// <inheritdoc/>
@@ -77,9 +82,9 @@ namespace WitherTorch.Core.Servers
             return SpigotAPI.Versions;
         }
 
-        protected override void BuildVersionInfo()
+        protected override MojangAPI.VersionInfo BuildVersionInfo()
         {
-            MojangAPI.VersionDictionary.TryGetValue(versionString, out mojangVersionInfo);
+            return FindVersionInfo(_version);
         }
 
         /// <inheritdoc/>
@@ -87,9 +92,6 @@ namespace WitherTorch.Core.Servers
         {
             try
             {
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
                 propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
                 propertyFiles[2] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./spigot.yml"));
@@ -107,19 +109,16 @@ namespace WitherTorch.Core.Servers
             try
             {
                 JsonPropertyFile serverInfoJson = ServerInfoJson;
-                versionString = serverInfoJson["version"].ToString();
+                _version = serverInfoJson["version"].ToString();
                 JToken buildNode = serverInfoJson["build"];
                 if (buildNode?.Type == JTokenType.Integer)
                 {
-                    build = (int)buildNode;
+                    _build = (int)buildNode;
                 }
                 else
                 {
-                    build = 0;
+                    _build = 0;
                 }
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
                 propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
                 propertyFiles[2] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./spigot.yml"));
@@ -178,7 +177,7 @@ namespace WitherTorch.Core.Servers
                         ErrorDialog = true,
                         UseShellExecute = false,
                     };
-                    process.StartProcess(startInfo);
+                    _process.StartProcess(startInfo);
                 }
             }
         }
@@ -190,11 +189,11 @@ namespace WitherTorch.Core.Servers
             {
                 if (force)
                 {
-                    process.Kill();
+                    _process.Kill();
                 }
                 else
                 {
-                    process.InputCommand("stop");
+                    _process.InputCommand("stop");
                 }
             }
         }
@@ -202,26 +201,26 @@ namespace WitherTorch.Core.Servers
         protected override bool BeforeServerSaved()
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
-            serverInfoJson["version"] = versionString;
-            serverInfoJson["build"] = build;
-            if (environment != null)
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
-            else
+            serverInfoJson["version"] = _version;
+            serverInfoJson["build"] = _build;
+            if (environment is null)
             {
                 serverInfoJson["java.path"] = null;
                 serverInfoJson["java.preArgs"] = null;
                 serverInfoJson["java.postArgs"] = null;
+            }
+            else
+            {
+                serverInfoJson["java.path"] = environment.JavaPath;
+                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
+                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
             }
             return true;
         }
 
         public override bool UpdateServer()
         {
-            return ChangeVersion(Array.IndexOf(SpigotAPI.Versions, versionString));
+            return InstallSoftware(_version);
         }
     }
 }
