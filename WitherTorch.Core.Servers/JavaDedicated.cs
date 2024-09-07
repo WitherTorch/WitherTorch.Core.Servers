@@ -61,7 +61,7 @@ namespace WitherTorch.Core.Servers
         {
             if (versionInfo is null)
                 return false;
-            InstallTask task = new InstallTask(this);
+            InstallTask task = new InstallTask(this, versionInfo.Id);
             OnServerInstalling(task);
             task.ChangeStatus(PreparingInstallStatus.Instance);
             void onInstallFinished(object sender, EventArgs e)

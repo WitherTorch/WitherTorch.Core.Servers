@@ -219,7 +219,7 @@ namespace WitherTorch.Core.Servers
 
         private bool InstallSoftware(string minecraftVersion, ForgeVersionData selectedVersion)
         {
-            InstallTask task = new InstallTask(this);
+            InstallTask task = new InstallTask(this, minecraftVersion);
             OnServerInstalling(task);
             if (!InstallSoftware(task, minecraftVersion, selectedVersion))
             {
@@ -328,6 +328,13 @@ namespace WitherTorch.Core.Servers
         }
 
         string _cache;
+
+        protected override void OnServerVersionChanged()
+        {
+            _cache = null;
+            base.OnServerVersionChanged();
+        }
+
         public override string GetReadableVersion()
         {
             if (_cache is null)

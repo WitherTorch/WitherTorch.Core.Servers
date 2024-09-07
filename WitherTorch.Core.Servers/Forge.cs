@@ -140,6 +140,12 @@ namespace WitherTorch.Core.Servers
 #endif
         }
 
+        protected override void OnServerVersionChanged()
+        {
+            _versionString = null;
+            base.OnServerVersionChanged();
+        }
+
         public override bool ChangeVersion(int versionIndex)
         {
             return InstallSoftware(_versionsLazy.Value[versionIndex], string.Empty);
@@ -177,7 +183,7 @@ namespace WitherTorch.Core.Servers
 
         private void InstallSoftware(string minecraftVersion, ForgeVersionData selectedVersion)
         {
-            InstallTask task = new InstallTask(this);
+            InstallTask task = new InstallTask(this, minecraftVersion + "-" + selectedVersion.version);
             OnServerInstalling(task);
             if (!InstallSoftware(task, minecraftVersion, selectedVersion))
             {

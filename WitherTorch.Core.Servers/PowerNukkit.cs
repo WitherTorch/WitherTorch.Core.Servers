@@ -85,7 +85,7 @@ namespace WitherTorch.Core.Servers
 
         private bool InstallSoftware(string version)
         {
-            InstallTask task = new InstallTask(this);
+            InstallTask task = new InstallTask(this, version);
             OnServerInstalling(task);
             void onInstallFinished(object sender, EventArgs e)
             {

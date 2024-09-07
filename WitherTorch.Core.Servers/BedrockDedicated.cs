@@ -103,7 +103,7 @@ namespace WitherTorch.Core.Servers
 
         public void InstallSoftware(string version)
         {
-            InstallTask task = new InstallTask(this);
+            InstallTask task = new InstallTask(this, version);
             OnServerInstalling(task);
             task.ChangeStatus(PreparingInstallStatus.Instance);
             string downloadURL = null;

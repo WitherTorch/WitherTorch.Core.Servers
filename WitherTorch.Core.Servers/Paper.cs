@@ -100,7 +100,7 @@ namespace WitherTorch.Core.Servers
                 return false;
             try
             {
-                InstallTask task = new InstallTask(this);
+                InstallTask task = new InstallTask(this, info.Id);
                 OnServerInstalling(task);
                 task.ChangeStatus(PreparingInstallStatus.Instance);
                 Task.Factory.StartNew(() =>
