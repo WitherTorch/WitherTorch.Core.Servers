@@ -8,7 +8,11 @@ using System.IO.Compression;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
+using YamlDotNet.Core;
+
 using static WitherTorch.Core.Utils.WebClient2;
+
+using Version = System.Version;
 
 namespace WitherTorch.Core.Servers
 {
@@ -112,31 +116,22 @@ namespace WitherTorch.Core.Servers
             switch (platformID)
             {
                 case PlatformID.Unix:
-                    downloadURL = string.Format(downloadURLForLinux, _version);
+                    downloadURL = string.Format(downloadURLForLinux, version);
                     break;
                 case PlatformID.Win32NT:
-                    downloadURL = string.Format(downloadURLForWindows, _version);
+                    downloadURL = string.Format(downloadURLForWindows, version);
                     break;
             }
-#elif NET5_0
+#elif NET5_0_OR_GREATER
             if (OperatingSystem.IsLinux())
             {
-                downloadURL = string.Format(downloadURLForLinux, versionString);
+                downloadURL = string.Format(downloadURLForLinux, version);
             }
             else if (OperatingSystem.IsWindows())
             {
-                downloadURL = string.Format(downloadURLForWindows, versionString);
+                downloadURL = string.Format(downloadURLForWindows, version);
             }
 #endif
-            void onInstallFinished(object sender, EventArgs e)
-            {
-                if (!(sender is InstallTask _task))
-                    return;
-                _task.InstallFinished -= onInstallFinished;
-                _version = version;
-                OnServerVersionChanged();
-            };
-            task.InstallFinished += onInstallFinished;
             if (!InstallSoftware(task, downloadURL))
             {
                 task.OnInstallFailed();
@@ -243,6 +238,7 @@ namespace WitherTorch.Core.Servers
                     else
                     {
                         task.ChangePercentage(100);
+                        _version = task.Version;
                         task.OnInstallFinished();
                     }
                 }

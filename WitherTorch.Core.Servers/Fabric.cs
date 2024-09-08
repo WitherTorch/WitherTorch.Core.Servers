@@ -2,22 +2,12 @@
 using Newtonsoft.Json.Linq;
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-#if NET472
-using System.Net;
-using System.Text;
-#elif NET5_0
-using System.Net.Http;
-#endif
 using System.Threading;
 
 using WitherTorch.Core.Servers.Utils;
-using WitherTorch.Core.Utils;
-
-using YamlDotNet.Core.Tokens;
 
 namespace WitherTorch.Core.Servers
 {

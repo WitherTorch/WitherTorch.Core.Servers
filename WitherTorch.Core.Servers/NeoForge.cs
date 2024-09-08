@@ -444,7 +444,7 @@ namespace WitherTorch.Core.Servers
                                 argPath += "/unix_args.txt";
                                 break;
                         }
-#elif NET5_0
+#elif NET5_0_OR_GREATER
                         if (OperatingSystem.IsWindows())
                         {
                             argPath += "/win_args.txt";
