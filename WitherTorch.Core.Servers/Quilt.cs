@@ -33,7 +33,6 @@ namespace WitherTorch.Core.Servers
                 return result;
             }, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        private readonly StringBuilder _readableVersionBuilder = new StringBuilder();
         private string _minecraftVersion;
         private string _quiltLoaderVersion;
         private JavaRuntimeEnvironment environment;
@@ -151,11 +150,7 @@ namespace WitherTorch.Core.Servers
 
         public override string GetReadableVersion()
         {
-            StringBuilder readableVersionBuilder = _readableVersionBuilder.Clear();
-            readableVersionBuilder.Append(_minecraftVersion);
-            readableVersionBuilder.Append('-');
-            readableVersionBuilder.Append(_quiltLoaderVersion);
-            return readableVersionBuilder.ToString();
+            return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _quiltLoaderVersion);
         }
 
         /// <summary>

@@ -51,7 +51,6 @@ namespace WitherTorch.Core.Servers
         private string _forgeVersion;
         private JavaRuntimeEnvironment environment;
         private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
-        private readonly StringBuilder _readableVersionBuilder = new StringBuilder();
 
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
@@ -330,11 +329,7 @@ namespace WitherTorch.Core.Servers
 
         public override string GetReadableVersion()
         {
-            StringBuilder readableVersionBuilder = _readableVersionBuilder.Clear();
-            readableVersionBuilder.Append(_minecraftVersion);
-            readableVersionBuilder.Append('-');
-            readableVersionBuilder.Append(_forgeVersion);
-            return readableVersionBuilder.ToString();
+            return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _forgeVersion);
         }
 
         public override RuntimeEnvironment GetRuntimeEnvironment()

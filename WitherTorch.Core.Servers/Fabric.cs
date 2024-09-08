@@ -34,7 +34,6 @@ namespace WitherTorch.Core.Servers
                     result[i] = loaderVersions[i].Version;
                 return result;
             }, LazyThreadSafetyMode.ExecutionAndPublication);
-        private readonly StringBuilder _readableVersionBuilder = new StringBuilder();
 
         private string _minecraftVersion;
         private string _fabricLoaderVersion;
@@ -152,11 +151,7 @@ namespace WitherTorch.Core.Servers
 
         public override string GetReadableVersion()
         {
-            StringBuilder readableVersionBuilder = _readableVersionBuilder.Clear();
-            readableVersionBuilder.Append(_minecraftVersion);
-            readableVersionBuilder.Append('-');
-            readableVersionBuilder.Append(_fabricLoaderVersion);
-            return readableVersionBuilder.ToString();
+            return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _fabricLoaderVersion);
         }
 
         /// <summary>
@@ -260,7 +255,7 @@ namespace WitherTorch.Core.Servers
             string minecraftVersion = serverInfoJson["version"]?.ToString();
             if (string.IsNullOrEmpty(minecraftVersion))
                 return false;
-            _minecraftVersion = minecraftVersion; 
+            _minecraftVersion = minecraftVersion;
             JToken fabricVerNode = serverInfoJson["fabric-version"];
             if (fabricVerNode?.Type == JTokenType.String)
             {

@@ -50,7 +50,6 @@ namespace WitherTorch.Core.Servers
         private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
             () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse())
         , LazyThreadSafetyMode.PublicationOnly);
-        private readonly StringBuilder _readableVersionBuilder = new StringBuilder();
 
         private string _minecraftVersion;
         private string _forgeVersion;
@@ -314,11 +313,7 @@ namespace WitherTorch.Core.Servers
 
         public override string GetReadableVersion()
         {
-            StringBuilder readableVersionBuilder = _readableVersionBuilder.Clear();
-            readableVersionBuilder.Append(_minecraftVersion);
-            readableVersionBuilder.Append('-');
-            readableVersionBuilder.Append(_forgeVersion);
-            return readableVersionBuilder.ToString();
+            return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _forgeVersion);
         }
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
