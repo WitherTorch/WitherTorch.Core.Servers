@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 using WitherTorch.Core.Servers.Utils;
 
@@ -32,6 +33,7 @@ namespace WitherTorch.Core.Servers
                 return result;
             }, LazyThreadSafetyMode.ExecutionAndPublication);
 
+        private readonly StringBuilder _readableVersionBuilder = new StringBuilder();
         private string _minecraftVersion;
         private string _quiltLoaderVersion;
         private JavaRuntimeEnvironment environment;
@@ -147,17 +149,13 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        string _cache;
-
-        protected override void OnServerVersionChanged()
-        {
-            _cache = null;
-            base.OnServerVersionChanged();
-        }
-
         public override string GetReadableVersion()
         {
-            return _cache ?? (_cache = _minecraftVersion + "-" + _quiltLoaderVersion);
+            StringBuilder readableVersionBuilder = _readableVersionBuilder.Clear();
+            readableVersionBuilder.Append(_minecraftVersion);
+            readableVersionBuilder.Append('-');
+            readableVersionBuilder.Append(_quiltLoaderVersion);
+            return readableVersionBuilder.ToString();
         }
 
         /// <summary>

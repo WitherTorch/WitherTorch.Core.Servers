@@ -51,6 +51,7 @@ namespace WitherTorch.Core.Servers
         private string _forgeVersion;
         private JavaRuntimeEnvironment environment;
         private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        private readonly StringBuilder _readableVersionBuilder = new StringBuilder();
 
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
@@ -327,21 +328,13 @@ namespace WitherTorch.Core.Servers
             };
         }
 
-        string _cache;
-
-        protected override void OnServerVersionChanged()
-        {
-            _cache = null;
-            base.OnServerVersionChanged();
-        }
-
         public override string GetReadableVersion()
         {
-            if (_cache is null)
-            {
-                _cache = _minecraftVersion + "-" + _forgeVersion;
-            }
-            return _cache;
+            StringBuilder readableVersionBuilder = _readableVersionBuilder.Clear();
+            readableVersionBuilder.Append(_minecraftVersion);
+            readableVersionBuilder.Append('-');
+            readableVersionBuilder.Append(_forgeVersion);
+            return readableVersionBuilder.ToString();
         }
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
