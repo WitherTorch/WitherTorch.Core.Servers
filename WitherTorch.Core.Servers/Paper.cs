@@ -1,11 +1,13 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
@@ -21,116 +23,125 @@ namespace WitherTorch.Core.Servers
         private const string manifestListURL3 = "https://api.papermc.io/v2/projects/paper/versions/{0}/builds/{1}";
         private const string downloadURL = "https://api.papermc.io/v2/projects/paper/versions/{0}/builds/{1}/downloads/{2}";
 
-        protected bool _isStarted;
-        readonly IPropertyFile[] propertyFiles = new IPropertyFile[4];
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<MojangAPI.VersionInfo> mc1_19 = new Lazy<MojangAPI.VersionInfo>(
+            () => (MojangAPI.VersionDictionary?.TryGetValue("1.19", out MojangAPI.VersionInfo result) ?? false) ? result : null,
+            LazyThreadSafetyMode.PublicationOnly);
+
+        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[4];
         public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
         public YamlPropertyFile BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
         public YamlPropertyFile SpigotYMLFile => propertyFiles[2] as YamlPropertyFile;
         public YamlPropertyFile PaperYMLFile => propertyFiles[3] as YamlPropertyFile;
-        private string versionString;
-        private long build = -1;
+
+        private string _version;
+        private int _build = -1;
         private JavaRuntimeEnvironment environment;
-        protected SystemProcess process;
-        internal static string[] versions;
-        private static MojangAPI.VersionInfo mc1_19;
 
         static Paper()
         {
             CallWhenStaticInitialize();
-            SoftwareRegistrationDelegate += Initialize;
             SoftwareID = "paper";
         }
 
-        public override string ServerVersion => versionString;
+        public override string ServerVersion => _version;
 
-        private static void Initialize()
+        private static string[] LoadVersionList()
         {
-            if (mc1_19 is null) MojangAPI.VersionDictionary?.TryGetValue("1.19", out mc1_19);
-        }
-
-        internal static void LoadVersionList()
-        {
-            List<string> preparingVersionList = new List<string>();
             try
             {
-                string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-                if (manifestString != null)
-                {
-                    JObject manifestJSON;
-                    using (StringReader reader = new StringReader(manifestString))
-                    {
-                        using (JsonTextReader jtr = new JsonTextReader(reader))
-                        {
-                            try
-                            {
-                                manifestJSON = GlobalSerializers.JsonSerializer.Deserialize(jtr) as JObject;
-                            }
-                            catch (Exception)
-                            {
-                                manifestJSON = null;
-                            }
-                        }
-                        try
-                        {
-                            reader?.Close();
-                        }
-                        catch (Exception)
-                        {
-                        }
-                    }
-                    if (manifestJSON != null)
-                    {
-                        JArray versionArray = manifestJSON.GetValue("versions") as JArray;
-                        if (versionArray != null)
-                        {
-                            foreach (JToken token in versionArray)
-                            {
-                                if (token is JValue tokenValue && tokenValue.Type == JTokenType.String)
-                                {
-                                    string version = tokenValue.Value.ToString();
-                                    preparingVersionList.Add(version);
-                                }
-                            }
-                        }
-                    }
-                }
+                return LoadVersionListInternal() ?? Array.Empty<string>();
             }
             catch (Exception)
             {
-
             }
-            preparingVersionList.Reverse();
-            versions = preparingVersionList.ToArray();
-        }
-
-        private async void InstallSoftware()
+            return Array.Empty<string>();
+        } 
+        
+        private static string[] LoadVersionListInternal()
         {
-            InstallTask task = new InstallTask(this);
-            OnServerInstalling(task);
-            task.ChangeStatus(PreparingInstallStatus.Instance);
-            if (!await InstallSoftware(task, string.Format(manifestListURL2, versionString)))
+            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            JObject manifestJSON;
+            using (JsonTextReader jtr = new JsonTextReader(new StringReader(manifestString)))
             {
-                task.OnInstallFailed();
-                return;
+                try
+                {
+                    manifestJSON = GlobalSerializers.JsonSerializer.Deserialize(jtr) as JObject;
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
             }
+            if (manifestJSON is null || !(manifestJSON.GetValue("versions") is JArray versions))
+                return null;
+            int length = versions.Count;
+            if (length <= 0)
+                return null;
+            List<string> list = new List<string>(length);
+            for (int i = 0; i < length; i++)
+            {
+                if (versions[i] is JValue versionToken && versionToken.Type == JTokenType.String)
+                {
+                    string version = versionToken.Value.ToString();
+                    list.Add(version);
+                }
+            }
+            string[] result = list.ToArray();
+            Array.Reverse(result);
+            return result;
         }
 
-        private async Task<bool> InstallSoftware(InstallTask task, string manifestURL)
+        private bool InstallSoftware(MojangAPI.VersionInfo info)
         {
+            if (info is null)
+                return false;
+            try
+            {
+                InstallTask task = new InstallTask(this, info.Id);
+                OnServerInstalling(task);
+                task.ChangeStatus(PreparingInstallStatus.Instance);
+                Task.Factory.StartNew(() =>
+                {
+                    try
+                    {
+                        if (!InstallSoftware(task, info))
+                            task.OnInstallFailed();
+                    }
+                    catch (Exception)
+                    {
+                        task.OnInstallFailed();
+                    }
+                }, default, TaskCreationOptions.LongRunning, TaskScheduler.Current);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        private bool InstallSoftware(InstallTask task, MojangAPI.VersionInfo info)
+        {
+            string version = info.Id;
+            string manifestURL = string.Format(manifestListURL2, version);
             if (string.IsNullOrEmpty(manifestURL))
                 return false;
             WebClient2 client = new WebClient2();
             InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
-            JObject jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(manifestURL));
+            JObject jsonObject = JsonConvert.DeserializeObject<JObject>(client.GetStringAsync(manifestURL).Result);
             if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetValue("builds", out JToken token))
                 return false;
             JArray jsonArray = token as JArray;
             if (jsonArray is null)
                 return false;
             token = jsonArray.Last;
-            if (token is null || !(token is JValue _value && _value.Value is long build))
+            if (token is null || !(token is JValue _value && _value.Type == JTokenType.Integer))
                 return false;
-            jsonObject = JsonConvert.DeserializeObject<JObject>(await client.GetStringAsync(string.Format(manifestListURL3, versionString, build.ToString())));
+            int build = _value.ToObject<int>();
+            jsonObject = JsonConvert.DeserializeObject<JObject>(client.GetStringAsync(string.Format(manifestListURL3, version, build.ToString())).Result);
             if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetValue("downloads", out token))
                 return false;
             jsonObject = token as JObject;
@@ -145,9 +156,9 @@ namespace WitherTorch.Core.Servers
             else
                 sha256 = null;
             watcher.Dispose();
-            int? id = FileDownloadHelper.AddTask(task: task, webClient: client, 
-                downloadUrl: string.Format(downloadURL, versionString, build, token.ToString()),
-                filename: Path.Combine(ServerDirectory, @"paper-" + versionString + ".jar"),
+            int? id = FileDownloadHelper.AddTask(task: task, webClient: client,
+                downloadUrl: string.Format(downloadURL, version, build, token.ToString()),
+                filename: Path.Combine(ServerDirectory, @"paper-" + version + ".jar"),
                 hash: sha256, hashMethod: HashHelper.HashMethod.SHA256);
             if (id.HasValue)
             {
@@ -156,9 +167,11 @@ namespace WitherTorch.Core.Servers
                     if (id.Value != sendingId)
                         return;
                     FileDownloadHelper.TaskFinished -= AfterDownload;
-                    if (mc1_19 is null)
-                        MojangAPI.VersionDictionary?.TryGetValue("1.19", out mc1_19);
-                    string path = GetMojangVersionInfo() >= mc1_19 ? "./config/paper-global.yml" : "./paper.yml";
+                    _version = version;
+                    _build = build;
+                    MojangAPI.VersionInfo mojangVersionInfo = FindVersionInfo(version);
+                    this.mojangVersionInfo = mojangVersionInfo;
+                    string path = mojangVersionInfo >= mc1_19.Value ? "./config/paper-global.yml" : "./paper.yml";
                     path = Path.GetFullPath(Path.Combine(ServerDirectory, path));
                     IPropertyFile propertyFile = propertyFiles[3];
                     if (propertyFile is null || !string.Equals(path, Path.GetFullPath(propertyFile.GetFilePath()), StringComparison.OrdinalIgnoreCase))
@@ -172,6 +185,7 @@ namespace WitherTorch.Core.Servers
                         {
                         }
                     }
+                    OnServerVersionChanged();
                 }
                 FileDownloadHelper.TaskFinished += AfterDownload;
                 return true;
@@ -182,30 +196,13 @@ namespace WitherTorch.Core.Servers
 
         public override bool ChangeVersion(int versionIndex)
         {
-            try
-            {
-                if (versions is null) LoadVersionList();
-                versionString = versions[versionIndex];
-                BuildVersionInfo();
-                InstallSoftware();
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
-        }
-
-        /// <inheritdoc/>
-        public override AbstractProcess GetProcess()
-        {
-            return process;
+            return InstallSoftware(FindVersionInfo(_versionsLazy.Value[versionIndex]));
         }
 
         /// <inheritdoc/>
         public override string GetReadableVersion()
         {
-            return versionString;
+            return _version;
         }
 
         /// <inheritdoc/>
@@ -217,16 +214,12 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override string[] GetSoftwareVersions()
         {
-            if (versions is null)
-            {
-                LoadVersionList();
-            }
-            return versions;
+            return _versionsLazy.Value;
         }
 
-        protected override void BuildVersionInfo()
+        protected override MojangAPI.VersionInfo BuildVersionInfo()
         {
-            MojangAPI.VersionDictionary.TryGetValue(versionString, out mojangVersionInfo);
+            return FindVersionInfo(_version);
         }
 
         /// <inheritdoc/>
@@ -234,9 +227,6 @@ namespace WitherTorch.Core.Servers
         {
             try
             {
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
                 propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
                 propertyFiles[2] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./spigot.yml"));
@@ -251,27 +241,26 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
+            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            string version = serverInfoJson["version"]?.ToString();
+            if (version is null)
+                return false;
+            _version = version;
+            JToken buildNode = serverInfoJson["build"];
+            if (buildNode?.Type == JTokenType.Integer)
+            {
+                _build = (int)buildNode;
+            }
+            else
+            {
+                _build = 0;
+            }
             try
             {
-                JsonPropertyFile serverInfoJson = ServerInfoJson;
-                versionString = serverInfoJson["version"].ToString();
-                JToken buildNode = serverInfoJson["build"];
-                if (buildNode?.Type == JTokenType.Integer)
-                {
-                    build = (long)buildNode;
-                }
-                else
-                {
-                    build = 0L;
-                }
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
                 propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
                 propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
                 propertyFiles[2] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./spigot.yml"));
-                if (mc1_19 is null) MojangAPI.VersionDictionary?.TryGetValue("1.19", out mc1_19);
-                if (GetMojangVersionInfo() >= mc1_19)
+                if (GetMojangVersionInfo() >= mc1_19.Value)
                 {
                     string path = Path.Combine(ServerDirectory, "./config/paper-global.yml");
                     if (!File.Exists(path))
@@ -351,7 +340,7 @@ namespace WitherTorch.Core.Servers
                         ErrorDialog = true,
                         UseShellExecute = false,
                     };
-                    process.StartProcess(startInfo);
+                    _process.StartProcess(startInfo);
                 }
             }
         }
@@ -363,11 +352,11 @@ namespace WitherTorch.Core.Servers
             {
                 if (force)
                 {
-                    process.Kill();
+                    _process.Kill();
                 }
                 else
                 {
-                    process.InputCommand("stop");
+                    _process.InputCommand("stop");
                 }
             }
         }
@@ -375,8 +364,8 @@ namespace WitherTorch.Core.Servers
         protected override bool BeforeServerSaved()
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
-            serverInfoJson["version"] = versionString;
-            serverInfoJson["build"] = build;
+            serverInfoJson["version"] = _version;
+            serverInfoJson["build"] = _build;
             if (environment != null)
             {
                 serverInfoJson["java.path"] = environment.JavaPath;
@@ -394,8 +383,7 @@ namespace WitherTorch.Core.Servers
 
         public override bool UpdateServer()
         {
-            if (versions is null) LoadVersionList();
-            return ChangeVersion(Array.IndexOf(versions, versionString));
+            return InstallSoftware(FindVersionInfo(_version));
         }
     }
 }

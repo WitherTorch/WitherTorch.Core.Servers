@@ -4,42 +4,44 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
+
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
+
+using YamlDotNet.Core;
+
 using static WitherTorch.Core.Utils.WebClient2;
+
+using Version = System.Version;
 
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
     /// Bedrock 原版伺服器
     /// </summary>
-    public class BedrockDedicated : Server<BedrockDedicated>
+    public class BedrockDedicated : LocalServer<BedrockDedicated>
     {
         private const string manifestListURL = "https://withertorch-bds-helper.vercel.app/api/latest";
         private const string downloadURLForLinux = "https://minecraft.azureedge.net/bin-linux/bedrock-server-{0}.zip";
         private const string downloadURLForWindows = "https://minecraft.azureedge.net/bin-win/bedrock-server-{0}.zip";
-        protected bool _isStarted;
 
-        protected SystemProcess process;
-        private string versionString;
-        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
-        private static string[] versions;
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, 
+            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+
+        private string _version;
 
         static BedrockDedicated()
         {
             SoftwareID = "bedrockDedicated";
         }
 
-        private static void LoadVersionList()
+        private static string[] LoadVersionList()
         {
 #if NET472
             PlatformID platformID = Environment.OSVersion.Platform;
             using (StringReader reader = new StringReader(CachedDownloadClient.Instance.DownloadString(manifestListURL)))
             {
-                bool keep = true;
-                while (reader.Peek() != -1 && keep)
+                while (reader.Peek() != -1)
                 {
                     string line = reader.ReadLine();
                     switch (platformID)
@@ -47,22 +49,20 @@ namespace WitherTorch.Core.Servers
                         case PlatformID.Unix:
                             if (line.StartsWith("linux=") && Version.TryParse(line = line.Substring(6), out _))
                             {
-                                versions = new string[] { line };
-                                keep = false;
+                                return new string[] { line };
                             }
                             break;
                         case PlatformID.Win32NT:
                             if (line.StartsWith("windows=") && Version.TryParse(line = line.Substring(8), out _))
                             {
-                                versions = new string[] { line };
-                                keep = false;
+                                return new string[] { line };
                             }
                             break;
                     }
                 }
                 reader.Close();
             }
-#elif NET5_0
+#elif NET5_0_OR_GREATER
             using (StringReader reader = new StringReader(CachedDownloadClient.Instance.DownloadString(manifestListURL)))
             {
                 while (reader.Peek() != -1)
@@ -72,37 +72,42 @@ namespace WitherTorch.Core.Servers
                     {
                         if (line[..6] == "linux=" && Version.TryParse(line = line[6..], out _))
                         {
-                            versions = new string[] { line };
-                            break;
+                            return new string[] { line };
                         }
                     }
                     else if (OperatingSystem.IsWindows())
                     {
                         if (line[..8] == "windows=" && Version.TryParse(line = line[8..], out _))
                         {
-                            versions = new string[] { line };
-                            break;
+                            return new string[] { line };
                         }
                     }
                 }
                 reader.Close();
             }
 #endif
+            return Array.Empty<string>();
         }
 
-        public override string ServerVersion => versionString;
+        public override string ServerVersion => _version;
 
         public override bool ChangeVersion(int versionIndex)
         {
-            if (versions is null) LoadVersionList();
-            versionString = versions[0];
-            InstallSoftware();
+            return InstallSoftware();
+        }        
+        
+        private bool InstallSoftware()
+        {
+            string[] versions = _versionsLazy.Value;
+            if (versions.Length <= 0)
+                return false;
+            InstallSoftware(versions[0]);
             return true;
         }
 
-        public void InstallSoftware()
+        public void InstallSoftware(string version)
         {
-            InstallTask task = new InstallTask(this);
+            InstallTask task = new InstallTask(this, version);
             OnServerInstalling(task);
             task.ChangeStatus(PreparingInstallStatus.Instance);
             string downloadURL = null;
@@ -111,20 +116,20 @@ namespace WitherTorch.Core.Servers
             switch (platformID)
             {
                 case PlatformID.Unix:
-                    downloadURL = string.Format(downloadURLForLinux, versionString);
+                    downloadURL = string.Format(downloadURLForLinux, version);
                     break;
                 case PlatformID.Win32NT:
-                    downloadURL = string.Format(downloadURLForWindows, versionString);
+                    downloadURL = string.Format(downloadURLForWindows, version);
                     break;
             }
-#elif NET5_0
+#elif NET5_0_OR_GREATER
             if (OperatingSystem.IsLinux())
             {
-                downloadURL = string.Format(downloadURLForLinux, versionString);
+                downloadURL = string.Format(downloadURLForLinux, version);
             }
             else if (OperatingSystem.IsWindows())
             {
-                downloadURL = string.Format(downloadURLForWindows, versionString);
+                downloadURL = string.Format(downloadURLForWindows, version);
             }
 #endif
             if (!InstallSoftware(task, downloadURL))
@@ -233,6 +238,7 @@ namespace WitherTorch.Core.Servers
                     else
                     {
                         task.ChangePercentage(100);
+                        _version = task.Version;
                         task.OnInstallFinished();
                     }
                 }
@@ -244,14 +250,9 @@ namespace WitherTorch.Core.Servers
             GC.Collect(1, GCCollectionMode.Optimized, false, false);
         }
 
-        public override AbstractProcess GetProcess()
-        {
-            return process;
-        }
-
         public override string GetReadableVersion()
         {
-            return versionString;
+            return _version;
         }
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
@@ -261,13 +262,12 @@ namespace WitherTorch.Core.Servers
 
         public override IPropertyFile[] GetServerPropertyFiles()
         {
-            return propertyFiles;
+            return Array.Empty<IPropertyFile>();
         }
 
         public override string[] GetSoftwareVersions()
         {
-            if (versions is null) LoadVersionList();
-            return versions;
+            return _versionsLazy.Value;
         }
 
         public override void RunServer(RuntimeEnvironment environment)
@@ -285,7 +285,7 @@ namespace WitherTorch.Core.Servers
                         ErrorDialog = true,
                         UseShellExecute = false,
                     };
-                    process.StartProcess(startInfo);
+                    _process.StartProcess(startInfo);
                 }
             }
         }
@@ -297,11 +297,11 @@ namespace WitherTorch.Core.Servers
             {
                 if (force)
                 {
-                    process.Kill();
+                    _process.Kill();
                 }
                 else
                 {
-                    process.InputCommand("stop");
+                    _process.InputCommand("stop");
                 }
             }
         }
@@ -312,47 +312,28 @@ namespace WitherTorch.Core.Servers
 
         public override bool UpdateServer()
         {
-            return ChangeVersion(default);
+            return InstallSoftware();
         }
 
         protected override bool CreateServer()
         {
-            try
-            {
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
             return true;
         }
 
         protected override bool OnServerLoading()
         {
-            try
-            {
-                JsonPropertyFile serverInfoJson = ServerInfoJson;
-                versionString = serverInfoJson["version"].ToString();
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-            }
-            catch (Exception)
-            {
+            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            string version = serverInfoJson["version"]?.ToString();
+            if (string.IsNullOrEmpty(version))
                 return false;
-            }
+            _version = version;
             return true;
         }
 
         protected override bool BeforeServerSaved()
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
-            serverInfoJson["version"] = versionString;
+            serverInfoJson["version"] = _version;
             return true;
         }
     }

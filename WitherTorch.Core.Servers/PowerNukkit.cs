@@ -1,105 +1,121 @@
-﻿using System;
+﻿using Newtonsoft.Json.Linq;
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Net;
+using System.Linq;
 using System.Xml;
-using Newtonsoft.Json.Linq;
+
 using WitherTorch.Core.Servers.Utils;
-using WitherTorch.Core.Utils;
+
+#if NET6_0_OR_GREATER
+using System.Collections.Frozen;
+#endif
 
 namespace WitherTorch.Core.Servers
 {
-    public class PowerNukkit : Server<PowerNukkit>
+    public class PowerNukkit : LocalServer<PowerNukkit>
     {
         private const string manifestListURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/maven-metadata.xml";
         private const string downloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
-        private static readonly Dictionary<string, string> versionDict = new Dictionary<string, string>();
-        private static string[] versions;
-        private bool _isStarted;
-        private string versionString;
-        private SystemProcess process;
+        private static readonly Lazy<IReadOnlyDictionary<string, string>> _versionDictLazy = new Lazy<IReadOnlyDictionary<string, string>>(
+            LoadVersionList, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
+            () =>
+            {
+                string[] result = _versionDictLazy.Value.Keys.ToArray();
+                Array.Reverse(result);
+                return result;
+            }, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+
+        private string _version;
         private JavaRuntimeEnvironment environment;
-        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[2];
+        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        public YamlPropertyFile NukkitYMLFile => propertyFiles[0] as YamlPropertyFile;
+        public override string ServerVersion => _version;
 
         static PowerNukkit()
         {
             SoftwareID = "powerNukkit";
         }
 
-        public override string ServerVersion => versionString;
+        private static IReadOnlyDictionary<string, string> LoadVersionList()
+        {
+            try
+            {
+                return LoadVersionListInternal() ?? EmptyDictionary<string, string>.Instance;
+            }
+            catch (Exception)
+            {
+            }
+            return EmptyDictionary<string, string>.Instance;
+        }
 
-        private static void LoadVersionList()
+        private static IReadOnlyDictionary<string, string> LoadVersionListInternal()
         {
             string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-            if (manifestString != null)
+            if (string.IsNullOrEmpty(manifestString))
+                return null;
+            XmlDocument manifestXML = new XmlDocument();
+            manifestXML.LoadXml(manifestString);
+            Dictionary<string, string> result = new Dictionary<string, string>();
+            foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
             {
-                XmlDocument manifestXML = new XmlDocument();
-                manifestXML.LoadXml(manifestString);
-                List<string> versionList = new List<string>();
-                foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
-                {
-                    string rawVersion = token.InnerText;
-                    string[] versions = rawVersion.Split(new char[] { '-' }, 3);
-                    if (versions.Length == 3) continue;
-                    string key = versions[0];
-                    if (versionDict.ContainsKey(key))
-                    {
-                        versionDict[key] = rawVersion;
-                    }
-                    else
-                    {
-                        versionDict.Add(key, rawVersion);
-                        versionList.Insert(0, key);
-                    }
-                }
-                versions = versionList.ToArray();
+                string rawVersion = token.InnerText;
+                string version;
+                int indexOf = rawVersion.IndexOf("-PN");
+                if (indexOf >= 0)
+                    version = rawVersion.Substring(0, indexOf);
+                else
+                    version = rawVersion;
+                result[version] = rawVersion;
             }
-            else
-            {
-                versions = Array.Empty<string>();
-            }
+#if NET6_0_OR_GREATER
+            return result.ToFrozenDictionary();
+#else
+            return result;
+#endif
         }
 
         public override bool ChangeVersion(int versionIndex)
         {
-            if (versions is null)
+            return InstallSoftware(_versionsLazy.Value[versionIndex]);
+        }
+
+        private bool InstallSoftware(string version)
+        {
+            InstallTask task = new InstallTask(this, version);
+            OnServerInstalling(task);
+            void onInstallFinished(object sender, EventArgs e)
             {
-                LoadVersionList();
+                if (!(sender is InstallTask _task))
+                    return;
+                _task.InstallFinished -= onInstallFinished;
+                _version = version;
+                OnServerVersionChanged();
+            };
+            task.InstallFinished += onInstallFinished;
+            if (!InstallSoftware(task, version))
+            {
+                task.OnInstallFailed();
+                return false;
             }
-            versionString = versions[versionIndex];
-            InstallSoftware();
             return true;
         }
 
-        private void InstallSoftware()
+        private bool InstallSoftware(InstallTask task, string version)
         {
-            InstallTask task = new InstallTask(this);
-            OnServerInstalling(task);
-            if (!InstallSoftware(task, versionString))
-            {
-                task.OnInstallFailed();
-                return;
-            }
-        }
-
-        private bool InstallSoftware(InstallTask task, string versionString)
-        {
-            if (string.IsNullOrEmpty(versionString) || !versionDict.TryGetValue(versionString, out string fullVersionString))
+            if (string.IsNullOrEmpty(version) || !_versionDictLazy.Value.TryGetValue(version, out string fullVersionString))
                 return false;
             return FileDownloadHelper.AddTask(task: task,
                 downloadUrl: string.Format(downloadURL, fullVersionString),
-                filename: Path.Combine(ServerDirectory, @"powernukkit-" + versionString + ".jar")).HasValue;
-        }
-
-        public override AbstractProcess GetProcess()
-        {
-            return process;
+                filename: Path.Combine(ServerDirectory, @"powernukkit-" + version + ".jar")).HasValue;
         }
 
         public override string GetReadableVersion()
         {
-            return versionString;
+            return _version;
         }
 
         public override RuntimeEnvironment GetRuntimeEnvironment()
@@ -114,11 +130,7 @@ namespace WitherTorch.Core.Servers
 
         public override string[] GetSoftwareVersions()
         {
-            if (versions is null)
-            {
-                LoadVersionList();
-            }
-            return versions;
+            return _versionsLazy.Value;
         }
 
         public override void RunServer(RuntimeEnvironment environment)
@@ -139,14 +151,14 @@ namespace WitherTorch.Core.Servers
                         FileName = javaPath,
                         Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
                         , javaRuntimeEnvironment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                        , Path.Combine(ServerDirectory, @"powernukkit-" + versionString + ".jar")
+                        , Path.Combine(ServerDirectory, @"powernukkit-" + _version + ".jar")
                         , javaRuntimeEnvironment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
                         WorkingDirectory = ServerDirectory,
                         CreateNoWindow = true,
                         ErrorDialog = true,
                         UseShellExecute = false,
                     };
-                    process.StartProcess(startInfo);
+                    _process.StartProcess(startInfo);
                 }
             }
         }
@@ -158,11 +170,11 @@ namespace WitherTorch.Core.Servers
             {
                 if (force)
                 {
-                    process.Kill();
+                    _process.Kill();
                 }
                 else
                 {
-                    process.InputCommand("stop");
+                    _process.InputCommand("stop");
                 }
             }
         }
@@ -181,19 +193,14 @@ namespace WitherTorch.Core.Servers
 
         public override bool UpdateServer()
         {
-            if (versions is null) LoadVersionList();
-            return ChangeVersion(Array.IndexOf(versions, versionString));
+            return InstallSoftware(_version);
         }
 
         protected override bool CreateServer()
         {
             try
             {
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-                propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./nukkit.yml"));
+                propertyFiles[0] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./nukkit.yml"));
             }
             catch (Exception)
             {
@@ -204,15 +211,14 @@ namespace WitherTorch.Core.Servers
 
         protected override bool OnServerLoading()
         {
+            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            string version = serverInfoJson["version"]?.ToString();
+            if (string.IsNullOrEmpty(version))
+                return false;
+            _version = version;
             try
             {
-                JsonPropertyFile serverInfoJson = ServerInfoJson;
-                versionString = serverInfoJson["version"].ToString();
-                process = new SystemProcess();
-                process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-                process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-                propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./nukkit.yml"));
+                propertyFiles[0] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./nukkit.yml"));
                 string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
                 string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
                 string jvmPostArgs = (serverInfoJson["java.postArgs"] as JValue)?.ToString() ?? null;
@@ -231,18 +237,18 @@ namespace WitherTorch.Core.Servers
         protected override bool BeforeServerSaved()
         {
             JsonPropertyFile serverInfoJson = ServerInfoJson;
-            serverInfoJson["version"] = versionString;
-            if (environment != null)
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
-            else
+            serverInfoJson["version"] = _version;
+            if (environment is null)
             {
                 serverInfoJson["java.path"] = null;
                 serverInfoJson["java.preArgs"] = null;
                 serverInfoJson["java.postArgs"] = null;
+            }
+            else
+            {
+                serverInfoJson["java.path"] = environment.JavaPath;
+                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
+                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
             }
             return true;
         }

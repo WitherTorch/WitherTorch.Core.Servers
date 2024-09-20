@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace WitherTorch.Core.Servers.Utils
+﻿namespace WitherTorch.Core.Servers.Utils
 {
-    internal static class ArrayUtils
+    internal static class ArrayExtensions
     {
         public static bool Contains(this string[] array, string key)
         {
