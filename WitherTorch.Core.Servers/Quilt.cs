@@ -132,7 +132,6 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(quiltLoaderVersion))
                 return false;
             InstallTask task = new InstallTask(this, minecraftVersion + "-" + quiltLoaderVersion);
-            OnServerInstalling(task);
             void onInstallFinished(object sender, EventArgs e)
             {
                 if (!(sender is InstallTask _task))
@@ -144,6 +143,7 @@ namespace WitherTorch.Core.Servers
                 OnServerVersionChanged();
             }
             task.InstallFinished += onInstallFinished;
+            OnServerInstalling(task);
             QuiltInstaller.Instance.Install(task, minecraftVersion, quiltLoaderVersion);
             return true;
         }

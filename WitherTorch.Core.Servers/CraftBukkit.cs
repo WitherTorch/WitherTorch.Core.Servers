@@ -53,7 +53,6 @@ namespace WitherTorch.Core.Servers
         private void InstallSoftware(string minecraftVersion, int build)
         {
             InstallTask task = new InstallTask(this, minecraftVersion);
-            OnServerInstalling(task);
             void onServerInstallFinished(object sender, EventArgs e)
             {
                 if (!(sender is InstallTask _task))
@@ -64,6 +63,7 @@ namespace WitherTorch.Core.Servers
                 OnServerVersionChanged();
             }
             task.InstallFinished += onServerInstallFinished;
+            OnServerInstalling(task);
             SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion);
         }
 

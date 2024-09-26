@@ -133,7 +133,6 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(fabricLoaderVersion))
                 return false;
             InstallTask task = new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion);
-            OnServerInstalling(task);
             void onInstallFinished(object sender, EventArgs e)
             {
                 if (!(sender is InstallTask _task))
@@ -145,6 +144,7 @@ namespace WitherTorch.Core.Servers
                 OnServerVersionChanged();
             }
             task.InstallFinished += onInstallFinished;
+            OnServerInstalling(task);
             FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion);
             return true;
         }
