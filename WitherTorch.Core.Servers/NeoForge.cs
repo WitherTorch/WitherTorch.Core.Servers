@@ -58,7 +58,7 @@ namespace WitherTorch.Core.Servers
         {
             CallWhenStaticInitialize();
             SoftwareRegistrationDelegate += Initialize;
-            SoftwareID = "neoforge";
+            SoftwareId = "neoforge";
         }
 
         public override string ServerVersion => _minecraftVersion;

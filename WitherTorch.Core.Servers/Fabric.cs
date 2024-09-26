@@ -44,7 +44,7 @@ namespace WitherTorch.Core.Servers
         static Fabric()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "fabric";
+            SoftwareId = "fabric";
         }
 
         public override string ServerVersion => _minecraftVersion;

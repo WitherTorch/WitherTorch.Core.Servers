@@ -34,7 +34,7 @@ namespace WitherTorch.Core.Servers
         static JavaDedicated()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "javaDedicated";
+            SoftwareId = "javaDedicated";
         }
 
         private string _version;

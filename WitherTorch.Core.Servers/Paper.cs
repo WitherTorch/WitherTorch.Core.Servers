@@ -41,7 +41,7 @@ namespace WitherTorch.Core.Servers
         static Paper()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "paper";
+            SoftwareId = "paper";
         }
 
         public override string ServerVersion => _version;

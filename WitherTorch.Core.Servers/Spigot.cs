@@ -23,7 +23,7 @@ namespace WitherTorch.Core.Servers
         static Spigot()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "spigot";
+            SoftwareId = "spigot";
         }
 
         public override string ServerVersion => _version;

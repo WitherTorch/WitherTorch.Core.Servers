@@ -43,7 +43,7 @@ namespace WitherTorch.Core.Servers
         static Quilt()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "quilt";
+            SoftwareId = "quilt";
         }
 
         public override string ServerVersion => _minecraftVersion;

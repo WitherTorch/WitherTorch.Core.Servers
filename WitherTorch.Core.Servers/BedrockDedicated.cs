@@ -32,7 +32,7 @@ namespace WitherTorch.Core.Servers
 
         static BedrockDedicated()
         {
-            SoftwareID = "bedrockDedicated";
+            SoftwareId = "bedrockDedicated";
         }
 
         private static string[] LoadVersionList()

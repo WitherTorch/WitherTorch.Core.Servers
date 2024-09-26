@@ -24,7 +24,7 @@ namespace WitherTorch.Core.Servers
         static CraftBukkit()
         {
             CallWhenStaticInitialize();
-            SoftwareID = "craftbukkit";
+            SoftwareId = "craftbukkit";
         }
 
         public override string ServerVersion => _version;

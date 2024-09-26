@@ -37,7 +37,7 @@ namespace WitherTorch.Core.Servers
 
         static PowerNukkit()
         {
-            SoftwareID = "powerNukkit";
+            SoftwareId = "powerNukkit";
         }
 
         private static IReadOnlyDictionary<string, string> LoadVersionList()
