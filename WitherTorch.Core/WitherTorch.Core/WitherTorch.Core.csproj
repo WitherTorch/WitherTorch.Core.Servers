@@ -1,7 +1,6 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<GlobalUsings>false</GlobalUsings>
 		<TargetFrameworks>net472;net6</TargetFrameworks>
 		<Platforms>AnyCPU;x64;ARM64</Platforms>
 		<Configurations>Debug;Release</Configurations>
@@ -9,13 +8,13 @@
 		<Deterministic>True</Deterministic>
 		<Authors>WitherTorch 製作組</Authors>
 		<Product>WitherTorch</Product>
-		<Description>WitherTorch 的預設伺服器實現集</Description>
+		<Description>WitherTorch 的核心程式庫</Description>
 		<Copyright>Copyright © WitherTorch 製作組 2024</Copyright>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
-		<PackageProjectUrl>https://github.com/WitherTorch/WitherTorch.CoreServers</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/WitherTorch/WitherTorch.Core.Servers</RepositoryUrl>
-		<Version>1.8.3-CI-5</Version>
+		<PackageProjectUrl>https://github.com/WitherTorch/WitherTorch.Core</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/WitherTorch/WitherTorch.Core</RepositoryUrl>
+		<Version>1.8.3-CI-15</Version>
 		<PackageIcon>withertorch_core_128.png</PackageIcon>
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>minecraft;minecraft-server</PackageTags>
@@ -31,7 +30,7 @@
 		<Optimize>True</Optimize>
 		<DebugType>none</DebugType>
 	</PropertyGroup>
-
+	
 	<ItemGroup>
 		<Compile Include="..\GlobalAssemblyInfo.cs" Link="GlobalAssemblyInfo.cs" />
 	</ItemGroup>
@@ -39,14 +38,12 @@
 	<ItemGroup>
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 		<PackageReference Include="System.IO.Compression" Version="4.3.0" Condition="'$(TargetFramework)' == 'net6'" />
-		<PackageReference Include="System.Collections.Immutable" Version="8.0.0" Condition="'$(TargetFramework)' == 'net6'" />
 		<PackageReference Include="YamlDotNet" Version="16.1.3" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Reference Include="System.IO.Compression" Condition="'$(TargetFramework)' == 'net472'" />
 		<Reference Include="System.Net.Http" Condition="'$(TargetFramework)' == 'net472'" />
-		<ProjectReference Include="$(SolutionDir)\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
