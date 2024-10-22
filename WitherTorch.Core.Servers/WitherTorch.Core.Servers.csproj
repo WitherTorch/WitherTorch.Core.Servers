@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<GlobalUsings>false</GlobalUsings>
 		<TargetFrameworks>net472;net6</TargetFrameworks>
-		<Platforms>AnyCPU;x64;ARM64</Platforms>
+		<Platforms>AnyCPU;x64;ARM64;x86</Platforms>
 		<Configurations>Debug;Release</Configurations>
 		<GenerateAssemblyInfo>False</GenerateAssemblyInfo>
 		<Deterministic>True</Deterministic>
