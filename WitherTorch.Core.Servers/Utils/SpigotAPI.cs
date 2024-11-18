@@ -96,12 +96,12 @@ namespace WitherTorch.Core.Servers.Utils
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
                 manifestString = client.GetStringAsync(url).Result;
             }
-            if (!string.IsNullOrEmpty(manifestString))
+            if (string.IsNullOrEmpty(manifestString))
                 return -1;
 
             XmlDocument manifestXML = new XmlDocument();
             manifestXML.LoadXml(manifestString);
-            string buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.Value;
+            string buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.InnerText;
             if (!string.IsNullOrEmpty(buildNumber) && int.TryParse(buildNumber, out int result))
                 return result;
             return -1;
