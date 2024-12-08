@@ -7,7 +7,7 @@ using System.Collections.Frozen;
 
 namespace WitherTorch.Core.Servers.Utils
 {
-    internal static class EmptyDictionary<TKey, TValue>
+    internal static class EmptyDictionary<TKey, TValue> where TKey : notnull
     {
         private static readonly IReadOnlyDictionary<TKey, TValue> _dictionary;
 

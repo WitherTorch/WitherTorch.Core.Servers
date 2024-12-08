@@ -42,18 +42,21 @@ namespace WitherTorch.Core.Servers.Utils
             return EmptyDictionary<string, string>.Instance;
         }
 
-        private static IReadOnlyDictionary<string, string> LoadVersionListInternal()
+        private static IReadOnlyDictionary<string, string>? LoadVersionListInternal()
         {
-            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
             if (string.IsNullOrEmpty(manifestString))
                 return null;
             XmlDocument manifestXML = new XmlDocument();
             manifestXML.LoadXml(manifestString);
+            XmlNodeList? nodeList = manifestXML.SelectNodes("/metadata/versioning/versions/version");
+            if (nodeList is null)
+                return null;
 
             Dictionary<string, string> result = new Dictionary<string, string>();
-            foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
+            foreach (XmlNode node in nodeList)
             {
-                string versionString = token.InnerText;
+                string versionString = node.InnerText;
                 string[] versionSplits = versionString.Split('-');
                 string version = versionSplits[0];
                 for (int i = 1; i < versionSplits.Length; i++)
@@ -76,11 +79,11 @@ namespace WitherTorch.Core.Servers.Utils
 
         public static int GetBuildNumber(string version)
         {
-            if (!VersionDictionary.TryGetValue(version, out version))
+            if (!VersionDictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
                 return -1;
             try
             {
-                return GetBuildNumberInternal(string.Format(manifestListURL2, version));
+                return GetBuildNumberInternal(string.Format(manifestListURL2, result));
             }
             catch (Exception)
             {
@@ -101,7 +104,7 @@ namespace WitherTorch.Core.Servers.Utils
 
             XmlDocument manifestXML = new XmlDocument();
             manifestXML.LoadXml(manifestString);
-            string buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.InnerText;
+            string? buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.InnerText;
             if (!string.IsNullOrEmpty(buildNumber) && int.TryParse(buildNumber, out int result))
                 return result;
             return -1;

@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
-using Newtonsoft.Json.Linq;
-
+using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -14,12 +15,12 @@ namespace WitherTorch.Core.Servers
     public class CraftBukkit : AbstractJavaEditionServer<CraftBukkit>
     {
         private readonly IPropertyFile[] propertyFiles = new IPropertyFile[2];
-        public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
-        public YamlPropertyFile BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
+        public JavaPropertyFile? ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
+        public YamlPropertyFile? BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
 
-        private string _version;
+        private string _version = string.Empty;
         private int _build = -1;
-        private JavaRuntimeEnvironment environment;
+        private JavaRuntimeEnvironment? _environment;
 
         static CraftBukkit()
         {
@@ -53,9 +54,9 @@ namespace WitherTorch.Core.Servers
         private void InstallSoftware(string minecraftVersion, int build)
         {
             InstallTask task = new InstallTask(this, minecraftVersion);
-            void onServerInstallFinished(object sender, EventArgs e)
+            void onServerInstallFinished(object? sender, EventArgs e)
             {
-                if (!(sender is InstallTask _task))
+                if (sender is not InstallTask _task)
                     return;
                 _task.InstallFinished -= onServerInstallFinished;
                 _version = minecraftVersion;
@@ -85,7 +86,7 @@ namespace WitherTorch.Core.Servers
             return SpigotAPI.Versions;
         }
 
-        protected override MojangAPI.VersionInfo BuildVersionInfo()
+        protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_version);
         }
@@ -108,82 +109,67 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
-            string version = serverInfoJson["version"]?.ToString();
-            if (string.IsNullOrEmpty(version))
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
+            string? version = serverInfoJson["version"]?.GetValue<string>();
+            if (version is null || version.Length <= 0)
                 return false;
             _version = version;
-            JToken buildNode = serverInfoJson["build"];
-            if (buildNode?.Type == JTokenType.Integer)
-            {
-                _build = (int)buildNode;
-            }
-            else
-            {
+            JsonNode? buildNode = serverInfoJson["build"];
+            if (buildNode is null || buildNode.GetValueKind() != JsonValueKind.Number)
                 _build = 0;
-            }
-            try
+            else
+                _build = buildNode.GetValue<int>();
+            propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
+            propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
+            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
+            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
+            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
+            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
             {
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-                propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
-                string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
-                string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
-                string jvmPostArgs = (serverInfoJson["java.postArgs"] as JValue)?.ToString() ?? null;
-                if (jvmPath != null || jvmPreArgs != null || jvmPostArgs != null)
-                {
-                    environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
-                }
-            }
-            catch (Exception)
-            {
-                return false;
+                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
             }
             return true;
         }
+
         /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment environment)
+        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                this.environment = javaRuntimeEnvironment;
+                this._environment = javaRuntimeEnvironment;
             else if (environment is null)
-                this.environment = null;
+                this._environment = null;
         }
 
         /// <inheritdoc/>
-        public override RuntimeEnvironment GetRuntimeEnvironment()
+        public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
-            return environment;
+            return _environment;
         }
 
         /// <inheritdoc/>
-        public override void RunServer(RuntimeEnvironment environment)
+        public override bool RunServer(JavaRuntimeEnvironment? environment)
         {
-            if (!_isStarted)
+            if (_isStarted)
+                return true;
+            environment ??= RuntimeEnvironment.JavaDefault;
+            string? javaPath = environment.JavaPath;
+            if (javaPath is null || !File.Exists(javaPath))
+                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
+            ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                if (environment is null)
-                    environment = RuntimeEnvironment.JavaDefault;
-                if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                {
-                    string javaPath = javaRuntimeEnvironment.JavaPath;
-                    if (javaPath is null || !File.Exists(javaPath))
-                    {
-                        javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-                    }
-                    ProcessStartInfo startInfo = new ProcessStartInfo
-                    {
-                        FileName = javaPath,
-                        Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
-                        , javaRuntimeEnvironment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                        , Path.Combine(ServerDirectory, @"craftbukkit-" + GetReadableVersion() + ".jar")
-                        , javaRuntimeEnvironment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                        WorkingDirectory = ServerDirectory,
-                        CreateNoWindow = true,
-                        ErrorDialog = true,
-                        UseShellExecute = false,
-                    };
-                    _process.StartProcess(startInfo);
-                }
-            }
+                FileName = javaPath,
+                Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
+                , environment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
+                , Path.Combine(ServerDirectory, @"craftbukkit-" + GetReadableVersion() + ".jar")
+                , environment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
+                WorkingDirectory = ServerDirectory,
+                CreateNoWindow = true,
+                ErrorDialog = true,
+                UseShellExecute = false,
+            };
+            return _process.StartProcess(startInfo);
         }
 
         /// <inheritdoc/>
@@ -204,9 +190,12 @@ namespace WitherTorch.Core.Servers
 
         protected override bool BeforeServerSaved()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
             serverInfoJson["version"] = _version;
             serverInfoJson["build"] = _build;
+            JavaRuntimeEnvironment? environment = _environment;
             if (environment is null)
             {
                 serverInfoJson["java.path"] = null;

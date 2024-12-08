@@ -1,6 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -9,6 +7,9 @@ using System.Threading;
 using System.Xml;
 
 using WitherTorch.Core.Servers.Utils;
+using WitherTorch.Core.Property;
+using YamlDotNet.Core.Tokens;
+
 
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
@@ -39,11 +40,11 @@ namespace WitherTorch.Core.Servers
 
         private static readonly int downloadURLPrefixLength = downloadURLPrefix.Length;
         private static readonly ThreadLocal<StringBuilder> localStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
-        private static readonly Lazy<MojangAPI.VersionInfo> mc1_3_2 = new Lazy<MojangAPI.VersionInfo>(
-            () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo result) ?? false) ? result : null,
+        private static readonly Lazy<MojangAPI.VersionInfo?> mc1_3_2 = new Lazy<MojangAPI.VersionInfo?>(
+            () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
-        private static readonly Lazy<MojangAPI.VersionInfo> mc1_5_2 = new Lazy<MojangAPI.VersionInfo>(
-            () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo result) ?? false) ? result : null,
+        private static readonly Lazy<MojangAPI.VersionInfo?> mc1_5_2 = new Lazy<MojangAPI.VersionInfo?>(
+            () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
         private static readonly Lazy<IReadOnlyDictionary<string, ForgeVersionData[]>> _versionDictLazy =
             new Lazy<IReadOnlyDictionary<string, ForgeVersionData[]>>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
@@ -51,12 +52,12 @@ namespace WitherTorch.Core.Servers
             () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse())
         , LazyThreadSafetyMode.PublicationOnly);
 
-        private string _minecraftVersion;
-        private string _forgeVersion;
-        private JavaRuntimeEnvironment environment;
         private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
+        private string _minecraftVersion = string.Empty;
+        private string _forgeVersion = string.Empty;
+        private JavaRuntimeEnvironment? _environment;
 
-        public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
+        public JavaPropertyFile? ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
         static Forge()
         {
@@ -90,17 +91,20 @@ namespace WitherTorch.Core.Servers
             return EmptyDictionary<string, ForgeVersionData[]>.Instance;
         }
 
-        private static IReadOnlyDictionary<string, ForgeVersionData[]> LoadVersionListInternal()
+        private static IReadOnlyDictionary<string, ForgeVersionData[]>? LoadVersionListInternal()
         {
-            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
             if (string.IsNullOrEmpty(manifestString))
                 return null;
             XmlDocument manifestXML = new XmlDocument();
             manifestXML.LoadXml(manifestString);
             Dictionary<string, List<ForgeVersionData>> dict = new Dictionary<string, List<ForgeVersionData>>();
-            foreach (XmlNode token in manifestXML.SelectNodes("/metadata/versioning/versions/version"))
+            XmlNodeList? nodes = manifestXML.SelectNodes("/metadata/versioning/versions/version");
+            if (nodes is null)
+                return null;
+            foreach (XmlNode node in nodes)
             {
-                string versionString = token.InnerText;
+                string versionString = node.InnerText;
                 if (versionString is null)
                     continue;
                 string[] versionSplits = versionString.Split(new char[] { '-' });
@@ -122,7 +126,7 @@ namespace WitherTorch.Core.Servers
                         version = new string(rawVersionString).Replace(".0", "");
                     }
                 }
-                if (!dict.TryGetValue(version, out List<ForgeVersionData> historyVersionList))
+                if (!dict.TryGetValue(version, out List<ForgeVersionData>? historyVersionList))
                     dict.Add(version, historyVersionList = new List<ForgeVersionData>());
                 historyVersionList.Add(new ForgeVersionData(versionSplits[1], versionString));
             }
@@ -155,7 +159,7 @@ namespace WitherTorch.Core.Servers
             try
             {
                 IReadOnlyDictionary<string, ForgeVersionData[]> versionDict = _versionDictLazy.Value;
-                ForgeVersionData selectedVersion;
+                ForgeVersionData? selectedVersion;
                 if (string.IsNullOrEmpty(forgeVersion))
                 {
                     selectedVersion = versionDict[minecraftVersion][0];
@@ -199,10 +203,16 @@ namespace WitherTorch.Core.Servers
 
             bool needInstall;
             string downloadURL;
-            StringBuilder URLBuilder = localStringBuilder.Value;
+            StringBuilder URLBuilder = ObjectUtils.ThrowIfNull(localStringBuilder.Value);
             URLBuilder.Append(downloadURLPrefix);
-            MojangAPI.VersionInfo info = FindVersionInfo(minecraftVersion);
-            if (info < mc1_3_2.Value) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
+            MojangAPI.VersionInfo? info = FindVersionInfo(minecraftVersion);
+            if (info is null)
+                return false;
+            MojangAPI.VersionInfo? mc1_3_2 = Forge.mc1_3_2.Value;
+            MojangAPI.VersionInfo? mc1_5_2 = Forge.mc1_5_2.Value;
+            if (mc1_3_2 is null || mc1_5_2 is null)
+                return false;
+            if (info < mc1_3_2) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
             {
                 URLBuilder.AppendFormat("{0}/forge-{0}-server.zip", versionRaw);
                 downloadURL = URLBuilder.ToString();
@@ -210,7 +220,7 @@ namespace WitherTorch.Core.Servers
             }
             else
             {
-                if (info < mc1_5_2.Value) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
+                if (info < mc1_5_2) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
                 {
                     URLBuilder.AppendFormat("{0}/forge-{0}-universal.zip", versionRaw);
                     downloadURL = URLBuilder.ToString();
@@ -233,7 +243,7 @@ namespace WitherTorch.Core.Servers
             {
                 if (needInstall)
                 {
-                    void AfterDownload(object sender, int sendingId)
+                    void AfterDownload(object? sender, int sendingId)
                     {
                         if (sendingId != id.Value)
                             return;
@@ -274,8 +284,13 @@ namespace WitherTorch.Core.Servers
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
-            System.Diagnostics.Process innerProcess = System.Diagnostics.Process.Start(startInfo);
-            void StopRequestedHandler(object sender, EventArgs e)
+            Process? innerProcess = Process.Start(startInfo);
+            if (innerProcess is null)
+            {
+                task.OnInstallFailed();
+                return;
+            }
+            void StopRequestedHandler(object? sender, EventArgs e)
             {
                 try
                 {
@@ -316,9 +331,9 @@ namespace WitherTorch.Core.Servers
             return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _forgeVersion);
         }
 
-        public override RuntimeEnvironment GetRuntimeEnvironment()
+        public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
-            return environment;
+            return _environment;
         }
 
         public override IPropertyFile[] GetServerPropertyFiles()
@@ -333,7 +348,7 @@ namespace WitherTorch.Core.Servers
 
         public static string[] GetForgeVersionsFromMCVersion(string mcVersion)
         {
-            if (_versionDictLazy.Value.TryGetValue(mcVersion, out ForgeVersionData[] versionPairs) == true)
+            if (_versionDictLazy.Value.TryGetValue(mcVersion, out ForgeVersionData[]? versionPairs) == true)
             {
                 int length = versionPairs.Length;
                 string[] result = new string[length];
@@ -348,7 +363,7 @@ namespace WitherTorch.Core.Servers
 
         private string GetFullVersionString()
         {
-            return Array.Find(_versionDictLazy.Value[_minecraftVersion], item => item.version == _forgeVersion).versionRaw;
+            return Array.Find(_versionDictLazy.Value[_minecraftVersion], item => item.version == _forgeVersion)?.versionRaw ?? string.Empty;
         }
 
         private IEnumerable<string> GetPossibleForgePaths(string fullVersionString)
@@ -357,104 +372,75 @@ namespace WitherTorch.Core.Servers
             yield return Path.Combine(ServerDirectory, "forge-" + fullVersionString + ".jar");
         }
 
-        public override void RunServer(RuntimeEnvironment environment)
+        public override bool RunServer(JavaRuntimeEnvironment? environment)
         {
-            if (!_isStarted)
+            if (_isStarted)
+                return true;
+            environment ??= RuntimeEnvironment.JavaDefault;
+            string? javaPath = environment.JavaPath;
+            if (javaPath is null || !File.Exists(javaPath))
+                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
+            string fullVersionString = GetFullVersionString(), argument;
+            string? path = null;
+            foreach (string _path in GetPossibleForgePaths(fullVersionString))
             {
-                if (environment is null)
-                    environment = RuntimeEnvironment.JavaDefault;
-                if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
+                if (File.Exists(_path))
                 {
-                    ProcessStartInfo startInfo = null;
-                    string fullVersionString = GetFullVersionString();
-                    string path = null;
-                    foreach (string _path in GetPossibleForgePaths(fullVersionString))
-                    {
-                        if (File.Exists(_path))
-                        {
-                            path = _path;
-                            break;
-                        }
-                    }
-                    if (path is object)
-                    {
-                        string javaPath = javaRuntimeEnvironment.JavaPath;
-                        if (javaPath is null || !File.Exists(javaPath))
-                        {
-                            javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-                        }
-                        startInfo = new ProcessStartInfo
-                        {
-                            FileName = javaPath,
-                            Arguments = string.Format("-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
-                            , javaRuntimeEnvironment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                            , path
-                            , javaRuntimeEnvironment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                            WorkingDirectory = ServerDirectory,
-                            CreateNoWindow = true,
-                            ErrorDialog = true,
-                            UseShellExecute = false,
-                        };
-                    }
-                    else
-                    {
-                        string argPath = "@libraries/net/minecraftforge/forge/" + fullVersionString;
-#if NET472
-                        switch (Environment.OSVersion.Platform)
-                        {
-                            case PlatformID.Win32NT:
-                                argPath += "/win_args.txt";
-                                break;
-                            case PlatformID.Unix:
-                                argPath += "/unix_args.txt";
-                                break;
-                        }
-#elif NET5_0_OR_GREATER
-                        if (OperatingSystem.IsWindows())
-                        {
-                            argPath += "/win_args.txt";
-                        }
-                        else if (OperatingSystem.IsLinux())
-                        {
-                            argPath += "/unix_args.txt";
-                        }
-                        else
-                        {
-                            switch (Environment.OSVersion.Platform)
-                            {
-                                case PlatformID.Unix:
-                                    argPath += "/unix_args.txt";
-                                    break;
-                            }
-                        }
-#endif
-                        if (File.Exists(Path.Combine(ServerDirectory, "./" + argPath.Substring(1))))
-                        {
-                            string javaPath = javaRuntimeEnvironment.JavaPath;
-                            if (javaPath is null || !File.Exists(javaPath))
-                            {
-                                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-                            }
-                            startInfo = new ProcessStartInfo
-                            {
-                                FileName = javaPath,
-                                Arguments = string.Format("-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} {1} {2}"
-                                , javaRuntimeEnvironment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                                , argPath
-                                , javaRuntimeEnvironment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                                WorkingDirectory = ServerDirectory,
-                                CreateNoWindow = true,
-                                ErrorDialog = true,
-                                UseShellExecute = false,
-                            };
-                        }
-                    }
-                    if (startInfo != null)
-                    {
-                        _process.StartProcess(startInfo);
-                    }
+                    path = _path;
+                    break;
                 }
             }
+            if (path is null)
+            {
+                path = "@libraries/net/minecraftforge/forge/" + fullVersionString;
+#if NET5_0_OR_GREATER
+                if (OperatingSystem.IsWindows())
+                {
+                    path += "/win_args.txt";
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    path += "/unix_args.txt";
+                }
+                else
+                {
+                    switch (Environment.OSVersion.Platform)
+                    {
+                        case PlatformID.Unix:
+                            path += "/unix_args.txt";
+                            break;
+                    }
+                }
+#else
+                switch (Environment.OSVersion.Platform)
+                {
+                    case PlatformID.Win32NT:
+                        path += "/win_args.txt";
+                        break;
+                    case PlatformID.Unix:
+                        path += "/unix_args.txt";
+                        break;
+                }
+#endif
+                argument = "-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} {1} {2}";
+            }
+            else
+            {
+                argument = "-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}";
+            }
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = javaPath,
+                Arguments = string.Format(argument
+                                , environment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
+                                , path
+                                , environment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
+                WorkingDirectory = ServerDirectory,
+                CreateNoWindow = true,
+                ErrorDialog = true,
+                UseShellExecute = false,
+            };
+            return _process.StartProcess(startInfo);
         }
 
         /// <inheritdoc/>
@@ -473,7 +459,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        protected override MojangAPI.VersionInfo BuildVersionInfo()
+        protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_minecraftVersion);
         }
@@ -495,59 +481,56 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
-
-            string minecraftVersion = (serverInfoJson["version"] as JValue)?.ToString();
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
+            string? minecraftVersion = serverInfoJson["version"]?.GetValue<string>();
             if (minecraftVersion is null)
                 return false;
-            string forgeVersion = (serverInfoJson["forge-version"] as JValue)?.ToString();
+            string? forgeVersion = serverInfoJson["forge-version"]?.GetValue<string>();
             if (forgeVersion is null)
                 return false;
             _minecraftVersion = minecraftVersion;
             _forgeVersion = forgeVersion;
-            try
+            propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
+            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
+            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.ToString() ?? null;
+            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.ToString() ?? null;
+            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
             {
-                propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
-                string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
-                string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
-                string jvmPostArgs = (serverInfoJson["java.postArgs"] as JValue)?.ToString() ?? null;
-                if (jvmPath != null || jvmPreArgs != null || jvmPostArgs != null)
-                {
-                    environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
-                }
-            }
-            catch (Exception)
-            {
-                return false;
+                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
             }
             return true;
         }
 
         /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment environment)
+        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                this.environment = javaRuntimeEnvironment;
+                this._environment = javaRuntimeEnvironment;
             else if (environment is null)
-                this.environment = null;
+                this._environment = null;
         }
 
         protected override bool BeforeServerSaved()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
             serverInfoJson["version"] = _minecraftVersion;
             serverInfoJson["forge-version"] = _forgeVersion;
-            if (environment != null)
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
-            else
+            JavaRuntimeEnvironment? environment = _environment;
+            if (environment is null)
             {
                 serverInfoJson["java.path"] = null;
                 serverInfoJson["java.preArgs"] = null;
                 serverInfoJson["java.postArgs"] = null;
+            }
+            else
+            {
+                serverInfoJson["java.path"] = environment.JavaPath;
+                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
+                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
             }
             return true;
         }
