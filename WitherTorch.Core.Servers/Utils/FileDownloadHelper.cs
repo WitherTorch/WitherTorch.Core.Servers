@@ -33,7 +33,7 @@ namespace WitherTorch.Core.Servers.Utils
 
             public string FileName { get; }
 
-            public string TempFileName { get; set; }
+            public string? TempFileName { get; set; }
 
             public double InitialPercentage { get; }
 
@@ -41,10 +41,10 @@ namespace WitherTorch.Core.Servers.Utils
 
             public HashHelper.HashMethod HashMethod { get; }
 
-            public byte[] ExceptedHash { get; }
+            public byte[]? ExceptedHash { get; }
 
-            public DownloadInfo(int flowNumber, InstallTask task, WebClient2 webClient, Uri downloadUrl, string fileName,
-                double initialPercentage, double percentageMultiplier, HashHelper.HashMethod hashMethod, byte[] hashes, bool disposeWebClientAfterUsed)
+            public DownloadInfo(int flowNumber, InstallTask task, WebClient2? webClient, Uri downloadUrl, string fileName,
+                double initialPercentage, double percentageMultiplier, HashHelper.HashMethod hashMethod, byte[]? hashes, bool disposeWebClientAfterUsed)
             {
                 FlowNumber = flowNumber;
                 Task = task;
@@ -94,16 +94,16 @@ namespace WitherTorch.Core.Servers.Utils
 
         private static readonly ThreadLocal<StringBuilder> localStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
 
-        public static event EventHandler<int> TaskFinished;
+        public static event EventHandler<int>? TaskFinished;
 
-        public static event EventHandler<int> TaskFailed;
+        public static event EventHandler<int>? TaskFailed;
 
-        public static int? AddTask(InstallTask task, string downloadUrl, string filename, WebClient2 webClient = null,
-            double initPercentage = 0.0, double percentageMultiplier = 1.0, byte[] hash = null, 
+        public static int? AddTask(InstallTask task, string downloadUrl, string filename, WebClient2? webClient = null,
+            double initPercentage = 0.0, double percentageMultiplier = 1.0, byte[]? hash = null, 
             HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None,
             bool disposeWebClientAfterUsed = true)
         {
-            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri downloadUri))
+            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadUri))
                 return null;
             initPercentage = Math.Max(Math.Min(initPercentage, 100.0), 0.0);
             percentageMultiplier = Math.Max(Math.Min(percentageMultiplier, (100.0 - initPercentage) / 100.0), 0.0);
@@ -116,7 +116,7 @@ namespace WitherTorch.Core.Servers.Utils
 
         private static string GetTempFileName(string filename)
         {
-            StringBuilder builder = localStringBuilder.Value;
+            StringBuilder builder = ObjectUtils.ThrowIfNull(localStringBuilder.Value);
             builder.EnsureCapacity(filename.Length + 5);
             builder.Append(filename);
             builder.Append(".tmp");
@@ -135,9 +135,9 @@ namespace WitherTorch.Core.Servers.Utils
             return result;
         }
 
-        private static void StartTask(DownloadInfo info)
+        private static void StartTask(DownloadInfo? info)
         {
-            if (info is null && !_dict.TryAdd(info.FlowNumber, info))
+            if (info is null || !_dict.TryAdd(info.FlowNumber, info))
                 return;
 
             InstallTask task = info.Task;
@@ -164,7 +164,7 @@ namespace WitherTorch.Core.Servers.Utils
             if (info is null)
                 return;
 
-            string tempFileName = info.TempFileName;
+            string tempFileName = ObjectUtils.ThrowIfNull(info.TempFileName);
             if (File.Exists(tempFileName))
             {
                 try
@@ -187,7 +187,7 @@ namespace WitherTorch.Core.Servers.Utils
             webClient.DownloadFileAsync(info.DownloadUrl, tempFileName, info);
         }
 
-        private static void EndTask(DownloadInfo info, bool failed)
+        private static void EndTask(DownloadInfo? info, bool failed)
         {
             if (info is null)
                 return;
@@ -205,7 +205,7 @@ namespace WitherTorch.Core.Servers.Utils
             if (_dict.TryRemove(info.FlowNumber, out _))
                 info.Dispose();
 
-            string tempFileName = info.TempFileName;
+            string tempFileName = ObjectUtils.ThrowIfNull(info.TempFileName);
             if (failed)
             {
                 if (File.Exists(tempFileName))
@@ -234,7 +234,7 @@ namespace WitherTorch.Core.Servers.Utils
                     catch (Exception)
                     {
                     }
-#elif NET472_OR_GREATER
+#else
                     if (File.Exists(fileName))
                     {
                         try
@@ -260,18 +260,18 @@ namespace WitherTorch.Core.Servers.Utils
             }
         }
 
-        private static void InstallTask_StopRequested(object sender, EventArgs e)
+        private static void InstallTask_StopRequested(object? sender, EventArgs e)
         {
-            if (sender is InstallTask task && _dict2.TryRemove(task, out DownloadInfo info))
+            if (sender is InstallTask task && _dict2.TryRemove(task, out DownloadInfo? info))
             {
                 task.StopRequested -= InstallTask_StopRequested;
                 EndTask(info, true);
             }
         }
 
-        private static void WebClient_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
+        private static void WebClient_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
         {
-            if (!(e.UserState is DownloadInfo info))
+            if (e.UserState is not DownloadInfo info)
                 return;
 
             DownloadStatus status = info.Status;
@@ -291,9 +291,9 @@ namespace WitherTorch.Core.Servers.Utils
                 task.ChangePercentage(percentage);
         }
 
-        private static void WebClient_DownloadFileCompleted(object sender, AsyncCompletedEventArgs e)
+        private static void WebClient_DownloadFileCompleted(object? sender, AsyncCompletedEventArgs e)
         {
-            if (!(e.UserState is DownloadInfo info))
+            if (e.UserState is not DownloadInfo info)
                 return;
 
             DownloadStatus status = info.Status;
@@ -322,9 +322,9 @@ namespace WitherTorch.Core.Servers.Utils
             }
 
             string filename = info.FileName;
-            string tempFilename = info.TempFileName;
-            byte[] exceptedHash = info.ExceptedHash;
-            byte[] actualHash;
+            string? tempFilename = info.TempFileName;
+            byte[]? exceptedHash = info.ExceptedHash;
+            byte[]? actualHash;
 
             switch (hashMethod)
             {
@@ -339,7 +339,7 @@ namespace WitherTorch.Core.Servers.Utils
                     task.ChangeStatus(new ValidatingStatus(filename));
                     try
                     {
-                        using (FileStream stream = File.Open(tempFilename, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        using (FileStream stream = File.Open(ObjectUtils.ThrowIfNull(tempFilename), FileMode.Open, FileAccess.Read, FileShare.Read))
                             actualHash = HashHelper.ComputeHash(stream, hashMethod);
                     }
                     catch (Exception)
@@ -361,14 +361,14 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 Task.Factory.StartNew((obj) =>
                 {
-                    if (!(obj is Tuple<DownloadInfo, byte[]> tuple))
+                    if (obj is not Tuple<DownloadInfo, byte[]> tuple)
                         return;
 
                     DownloadInfo _info = tuple.Item1;
                     InstallTask _task = _info.Task;
-                    string _tempFilename = _info.TempFileName;
+                    string _tempFilename = ObjectUtils.ThrowIfNull(_info.TempFileName);
                     byte[] _actualHash = tuple.Item2;
-                    byte[] _exceptedHash = _info.ExceptedHash;
+                    byte[] _exceptedHash = ObjectUtils.ThrowIfNull(_info.ExceptedHash);
 
                     switch (_task.OnValidateFailed(_tempFilename, _actualHash, _exceptedHash))
                     {

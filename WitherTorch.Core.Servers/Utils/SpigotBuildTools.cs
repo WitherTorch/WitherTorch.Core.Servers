@@ -4,7 +4,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Xml;
+
 using WitherTorch.Core.Utils;
+
 using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -16,27 +18,23 @@ namespace WitherTorch.Core.Servers.Utils
     {
         private const string manifestListURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/api/xml";
         private const string downloadURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
-        private readonly static DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.SpigotBuildToolsPath));
-        private readonly static FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.jar"));
-        private readonly static FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.version"));
-        private event EventHandler UpdateStarted;
-        private event UpdateProgressEventHandler UpdateProgressChanged;
-        private event EventHandler UpdateFinished;
-        private static SpigotBuildTools _instance;
-        public static SpigotBuildTools Instance
-        {
-            get
-            {
-                if (_instance is null)
-                    _instance = new SpigotBuildTools();
-                return _instance;
-            }
-        }
+        private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.SpigotBuildToolsPath));
+        private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.jar"));
+        private static readonly FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.version"));
+        private static readonly Lazy<SpigotBuildTools> _instLazy = new Lazy<SpigotBuildTools>(() => new SpigotBuildTools(),
+            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+        private event EventHandler? UpdateStarted;
+        private event UpdateProgressEventHandler? UpdateProgressChanged;
+        private event EventHandler? UpdateFinished;
+
+        public static SpigotBuildTools Instance => _instLazy.Value;
+
         public enum BuildTarget
         {
             CraftBukkit,
             Spigot
         }
+
         private static bool CheckUpdate(out int updatedVersion)
         {
             int version = -1;
@@ -47,7 +45,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     using (StreamReader reader = buildToolVersionInfo.OpenText())
                     {
-                        string versionText;
+                        string? versionText;
                         do
                         {
                             versionText = reader.ReadLine();
@@ -66,7 +64,13 @@ namespace WitherTorch.Core.Servers.Utils
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
                 manifestXML.LoadXml(client.DownloadString(manifestListURL));
             }
-            nowVersion = int.Parse(manifestXML.SelectSingleNode("//mavenModuleSet/lastSuccessfulBuild/number").InnerText);
+            string? versionString = manifestXML.SelectSingleNode("//mavenModuleSet/lastSuccessfulBuild/number")?.InnerText;
+            if (versionString is null || versionString.Length <= 0)
+            {
+                updatedVersion = 0;
+                return false;
+            }
+            nowVersion = int.Parse(versionString);
             if (version < nowVersion)
             {
                 version = -1;
@@ -74,11 +78,12 @@ namespace WitherTorch.Core.Servers.Utils
             updatedVersion = nowVersion;
             return version <= 0;
         }
+
         private void Update(InstallTask installTask, int version)
         {
             UpdateStarted?.Invoke(this, EventArgs.Empty);
-            WebClient2 client = new WebClient2();
-            void StopRequestedHandler(object sender, EventArgs e)
+            WebClient2? client = new WebClient2();
+            void StopRequestedHandler(object? sender, EventArgs e)
             {
                 try
                 {
@@ -91,11 +96,11 @@ namespace WitherTorch.Core.Servers.Utils
                 installTask.StopRequested -= StopRequestedHandler;
             };
             installTask.StopRequested += StopRequestedHandler;
-            client.DownloadProgressChanged += delegate (object sender, DownloadProgressChangedEventArgs e)
+            client.DownloadProgressChanged += delegate (object? sender, DownloadProgressChangedEventArgs e)
             {
                 UpdateProgressChanged?.Invoke(e.ProgressPercentage);
             };
-            client.DownloadFileCompleted += delegate (object sender, AsyncCompletedEventArgs e)
+            client.DownloadFileCompleted += delegate (object? sender, AsyncCompletedEventArgs e)
             {
                 client.Dispose();
                 client = null;
@@ -119,7 +124,7 @@ namespace WitherTorch.Core.Servers.Utils
             SpigotBuildToolsStatus status = new SpigotBuildToolsStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
             installTask.ChangeStatus(status);
             bool isStop = false;
-            void StopRequestedHandler(object sender, EventArgs e)
+            void StopRequestedHandler(object? sender, EventArgs e)
             {
                 isStop = true;
                 installTask.StopRequested -= StopRequestedHandler;
@@ -174,11 +179,16 @@ namespace WitherTorch.Core.Servers.Utils
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
-            System.Diagnostics.Process innerProcess = System.Diagnostics.Process.Start(startInfo);
+            Process? innerProcess = Process.Start(startInfo);
+            if (innerProcess is null)
+            {
+                task.OnInstallFailed();
+                return;
+            }
             innerProcess.EnableRaisingEvents = true;
             innerProcess.BeginOutputReadLine();
             innerProcess.BeginErrorReadLine();
-            void StopRequestedHandler(object sender, EventArgs e)
+            void StopRequestedHandler(object? sender, EventArgs e)
             {
                 try
                 {

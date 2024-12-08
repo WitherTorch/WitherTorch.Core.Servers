@@ -1,14 +1,14 @@
-﻿using Newtonsoft.Json;
+﻿
+using System.Text.Json.Serialization;
 
 namespace WitherTorch.Core.Servers.Utils
 {
-    [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
     internal struct VersionStruct
     {
-        [JsonProperty("version", Required = Required.Always)]
+        [JsonPropertyName("version")]
         public string Version { get; set; }
 
-        [JsonProperty("stable", Required = Required.DisallowNull)]
+        [JsonPropertyName("stable")]
         public bool Stable { get; set; }
     }
 }

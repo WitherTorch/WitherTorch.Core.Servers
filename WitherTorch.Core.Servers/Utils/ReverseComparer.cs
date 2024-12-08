@@ -14,8 +14,10 @@ namespace WitherTorch.Core.Servers.Utils
             _comparer = comparer;
         }
 
-        public int Compare(T x, T y)
+        public int Compare(T? x, T? y)
         {
+            x = ObjectUtils.ThrowIfNull(x, nameof(x));
+            y = ObjectUtils.ThrowIfNull(y, nameof(y));
             int result = _comparer.Compare(x, y);
             return -result;
         }

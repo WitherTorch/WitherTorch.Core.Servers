@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<GlobalUsings>false</GlobalUsings>
-		<TargetFrameworks>net472;net6</TargetFrameworks>
+		<TargetFrameworks>netstandard2.0;net6</TargetFrameworks>
 		<Platforms>AnyCPU;x64;ARM64;x86</Platforms>
 		<Configurations>Debug;Release</Configurations>
 		<GenerateAssemblyInfo>False</GenerateAssemblyInfo>
@@ -24,7 +24,8 @@
 		<PackageReadmeFile>package_README.md</PackageReadmeFile>
 		<SignAssembly>True</SignAssembly>
 		<AssemblyOriginatorKeyFile>keypair.snk</AssemblyOriginatorKeyFile>
-		<Nullable>disable</Nullable>
+		<Nullable>enable</Nullable>
+		<LangVersion>9.0</LangVersion>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -37,15 +38,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 		<PackageReference Include="System.IO.Compression" Version="4.3.0" Condition="'$(TargetFramework)' == 'net6'" />
 		<PackageReference Include="System.Collections.Immutable" Version="8.0.0" Condition="'$(TargetFramework)' == 'net6'" />
-		<PackageReference Include="YamlDotNet" Version="16.1.2" />
+		<PackageReference Include="System.Text.Json" Version="8.0.5" />
+		<PackageReference Include="YamlDotNet" Version="16.2.1" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<Reference Include="System.IO.Compression" Condition="'$(TargetFramework)' == 'net472'" />
-		<Reference Include="System.Net.Http" Condition="'$(TargetFramework)' == 'net472'" />
 		<ProjectReference Include="$(SolutionDir)\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
 	</ItemGroup>
 
