@@ -1,12 +1,11 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
+using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
@@ -23,8 +22,12 @@ namespace WitherTorch.Core.Servers
             var dict = MojangAPI.VersionDictionary;
             foreach (MojangAPI.VersionInfo info in dict.Values)
             {
-                if (IsVanillaHasServer(info))
-                    result.Add(info.Id);
+                if (!IsVanillaHasServer(info))
+                    continue;
+                string? id = info.Id;
+                if (id is null)
+                    continue;
+                result.Add(id);
             }
             string[] array = result.ToArray();
             Array.Sort(array, MojangAPI.VersionComparer.Instance.Reverse());
@@ -37,11 +40,11 @@ namespace WitherTorch.Core.Servers
             SoftwareId = "javaDedicated";
         }
 
-        private string _version;
-        private JavaRuntimeEnvironment _environment;
+        private string _version = string.Empty;
+        private JavaRuntimeEnvironment? _environment;
         private readonly IPropertyFile[] _propertyFiles = new IPropertyFile[1];
 
-        public JavaPropertyFile ServerPropertiesFile => _propertyFiles[0] as JavaPropertyFile;
+        public JavaPropertyFile? ServerPropertiesFile => _propertyFiles[0] as JavaPropertyFile;
         public override string ServerVersion => _version;
 
         private static bool IsVanillaHasServer(MojangAPI.VersionInfo versionInfo)
@@ -57,23 +60,26 @@ namespace WitherTorch.Core.Servers
             return false;
         }
 
-        private bool InstallSoftware(MojangAPI.VersionInfo versionInfo)
+        private bool InstallSoftware(MojangAPI.VersionInfo? versionInfo)
         {
             if (versionInfo is null)
                 return false;
-            InstallTask task = new InstallTask(this, versionInfo.Id);
-            void onInstallFinished(object sender, EventArgs e)
+            string? id = versionInfo.Id;
+            if (id is null || id.Length <= 0)
+                return false;
+            InstallTask task = new InstallTask(this, id);
+            OnServerInstalling(task);
+            task.ChangeStatus(PreparingInstallStatus.Instance);
+            void onInstallFinished(object? sender, EventArgs e)
             {
-                if (!(sender is InstallTask _task))
+                if (sender is not InstallTask _task)
                     return;
                 _task.InstallFinished -= onInstallFinished;
-                _version = versionInfo.Id;
+                _version = id;
                 mojangVersionInfo = versionInfo;
                 OnServerVersionChanged();
             };
             task.InstallFinished += onInstallFinished;
-            OnServerInstalling(task);
-            task.ChangeStatus(PreparingInstallStatus.Instance);
             Task.Factory.StartNew(() =>
             {
                 try
@@ -91,27 +97,27 @@ namespace WitherTorch.Core.Servers
 
         private bool InstallSoftware(InstallTask task, MojangAPI.VersionInfo versionInfo)
         {
-            string manifestURL = versionInfo.ManifestURL;
-            if (string.IsNullOrEmpty(manifestURL))
+            string? manifestURL = versionInfo.ManifestURL;
+            if (manifestURL is null || manifestURL.Length <= 0)
                 return false;
             WebClient2 client = new WebClient2();
             InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
-            JObject jsonObject = JsonConvert.DeserializeObject<JObject>(client.GetStringAsync(manifestURL).Result);
-            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetValue("downloads", out JToken token))
+            JsonObject? jsonObject = JsonNode.Parse(client.GetStringAsync(manifestURL).Result) as JsonObject;
+            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out JsonNode? node))
                 return false;
-            jsonObject = token as JObject;
-            if (jsonObject is null || !jsonObject.TryGetValue("server", out token))
+            jsonObject = node as JsonObject;
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("server", out node))
                 return false;
-            jsonObject = token as JObject;
-            if (jsonObject is null || !jsonObject.TryGetValue("url", out token))
+            jsonObject = node as JsonObject;
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node))
                 return false;
-            byte[] sha1;
-            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetValue("sha1", out JToken sha1Token))
-                sha1 = HashHelper.HexStringToByte(sha1Token.ToString());
+            byte[]? sha1;
+            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetPropertyValue("sha1", out JsonNode? sha1Node))
+                sha1 = HashHelper.HexStringToByte(ObjectUtils.ThrowIfNull(sha1Node).ToString());
             else
                 sha1 = null;
             watcher.Dispose();
-            return FileDownloadHelper.AddTask(task: task, webClient: client, downloadUrl: token.ToString(),
+            return FileDownloadHelper.AddTask(task: task, webClient: client, downloadUrl: ObjectUtils.ThrowIfNull(node).ToString(),
                 filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionInfo.Id + ".jar"),
                 hash: sha1, hashMethod: HashHelper.HashMethod.SHA1).HasValue;
         }
@@ -120,8 +126,8 @@ namespace WitherTorch.Core.Servers
         public override bool ChangeVersion(int versionIndex)
         {
             return InstallSoftware(MojangAPI.Versions[versionIndex]);
-        }        
-        
+        }
+
         private bool InstallSoftware(string version)
         {
             try
@@ -152,7 +158,7 @@ namespace WitherTorch.Core.Servers
             return _versionsLazy.Value;
         }
 
-        protected override MojangAPI.VersionInfo BuildVersionInfo()
+        protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_version);
         }
@@ -176,46 +182,32 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
-            string version = (serverInfoJson["version"] as JValue)?.ToString();
-            if (version is null)
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
                 return false;
-            JavaPropertyFile propertyFile;
-            try
-            {
-                propertyFile = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-            }
-            catch (Exception)
-            {
+            string? version = (serverInfoJson["version"] as JsonValue)?.GetValue<string>();
+            if (version is null || version.Length <= 0)
                 return false;
-            }
             _version = version;
-            _propertyFiles[0] = propertyFile;
-            try
+            _propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
+            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
+            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
+            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
+            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
             {
-                string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
-                string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
-                string jvmPostArgs = (serverInfoJson["java.postArgs"] as JValue)?.ToString() ?? null;
-                if (jvmPath != null || jvmPreArgs != null || jvmPostArgs != null)
-                {
-                    _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
-                }
-            }
-            catch (Exception)
-            {
-                return false;
+                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
             }
             return true;
         }
 
         /// <inheritdoc/>
-        public override RuntimeEnvironment GetRuntimeEnvironment()
+        public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
             return _environment;
         }
 
         /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment environment)
+        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
                 _environment = javaRuntimeEnvironment;
@@ -224,34 +216,27 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        public override void RunServer(RuntimeEnvironment environment)
+        public override bool RunServer(JavaRuntimeEnvironment? environment)
         {
-            if (!_isStarted)
+            if (_isStarted)
+                return true;
+            environment ??= RuntimeEnvironment.JavaDefault;
+            string? javaPath = environment.JavaPath;
+            if (javaPath is null || !File.Exists(javaPath))
+                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
+            ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                if (environment is null)
-                    environment = RuntimeEnvironment.JavaDefault;
-                if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                {
-                    string javaPath = javaRuntimeEnvironment.JavaPath;
-                    if (javaPath is null || !File.Exists(javaPath))
-                    {
-                        javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-                    }
-                    ProcessStartInfo startInfo = new ProcessStartInfo
-                    {
-                        FileName = javaPath,
-                        Arguments = string.Format("-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
-                        , javaRuntimeEnvironment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                        , Path.Combine(ServerDirectory, @"minecraft_server." + GetReadableVersion() + ".jar")
-                        , javaRuntimeEnvironment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                        WorkingDirectory = ServerDirectory,
-                        CreateNoWindow = true,
-                        ErrorDialog = true,
-                        UseShellExecute = false,
-                    };
-                    _process.StartProcess(startInfo);
-                }
-            }
+                FileName = javaPath,
+                Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
+                , environment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
+                , Path.Combine(ServerDirectory, @"minecraft_server." + GetReadableVersion() + ".jar")
+                , environment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
+                WorkingDirectory = ServerDirectory,
+                CreateNoWindow = true,
+                ErrorDialog = true,
+                UseShellExecute = false,
+            };
+            return _process.StartProcess(startInfo);
         }
 
         /// <inheritdoc/>
@@ -272,9 +257,11 @@ namespace WitherTorch.Core.Servers
 
         protected override bool BeforeServerSaved()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
             serverInfoJson["version"] = _version;
-            JavaRuntimeEnvironment environment = _environment;
+            JavaRuntimeEnvironment? environment = _environment;
             if (environment is null)
             {
                 serverInfoJson["java.path"] = null;

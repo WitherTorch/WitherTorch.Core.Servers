@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 
+using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
@@ -25,10 +26,10 @@ namespace WitherTorch.Core.Servers
         private const string downloadURLForLinux = "https://minecraft.azureedge.net/bin-linux/bedrock-server-{0}.zip";
         private const string downloadURLForWindows = "https://minecraft.azureedge.net/bin-win/bedrock-server-{0}.zip";
 
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, 
+        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList,
             System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
 
-        private string _version;
+        private string _version = string.Empty;
 
         static BedrockDedicated()
         {
@@ -37,9 +38,37 @@ namespace WitherTorch.Core.Servers
 
         private static string[] LoadVersionList()
         {
-#if NET472
+            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (manifestString is null)
+                return Array.Empty<string>();
+#if NET5_0_OR_GREATER
+            using (StringReader reader = new StringReader(manifestString))
+            {
+                while (reader.Peek() != -1)
+                {
+                    string? line = reader.ReadLine();
+                    if (string.IsNullOrEmpty(line))
+                        continue;
+                    if (OperatingSystem.IsLinux())
+                    {
+                        if (line[..6] == "linux=" && Version.TryParse(line = line[6..], out _))
+                        {
+                            return new string[] { line };
+                        }
+                    }
+                    else if (OperatingSystem.IsWindows())
+                    {
+                        if (line[..8] == "windows=" && Version.TryParse(line = line[8..], out _))
+                        {
+                            return new string[] { line };
+                        }
+                    }
+                }
+                reader.Close();
+            }
+#else 
             PlatformID platformID = Environment.OSVersion.Platform;
-            using (StringReader reader = new StringReader(CachedDownloadClient.Instance.DownloadString(manifestListURL)))
+            using (StringReader reader = new StringReader(manifestString))
             {
                 while (reader.Peek() != -1)
                 {
@@ -62,29 +91,6 @@ namespace WitherTorch.Core.Servers
                 }
                 reader.Close();
             }
-#elif NET5_0_OR_GREATER
-            using (StringReader reader = new StringReader(CachedDownloadClient.Instance.DownloadString(manifestListURL)))
-            {
-                while (reader.Peek() != -1)
-                {
-                    string line = reader.ReadLine();
-                    if (OperatingSystem.IsLinux())
-                    {
-                        if (line[..6] == "linux=" && Version.TryParse(line = line[6..], out _))
-                        {
-                            return new string[] { line };
-                        }
-                    }
-                    else if (OperatingSystem.IsWindows())
-                    {
-                        if (line[..8] == "windows=" && Version.TryParse(line = line[8..], out _))
-                        {
-                            return new string[] { line };
-                        }
-                    }
-                }
-                reader.Close();
-            }
 #endif
             return Array.Empty<string>();
         }
@@ -94,8 +100,8 @@ namespace WitherTorch.Core.Servers
         public override bool ChangeVersion(int versionIndex)
         {
             return InstallSoftware();
-        }        
-        
+        }
+
         private bool InstallSoftware()
         {
             string[] versions = _versionsLazy.Value;
@@ -110,8 +116,17 @@ namespace WitherTorch.Core.Servers
             InstallTask task = new InstallTask(this, version);
             OnServerInstalling(task);
             task.ChangeStatus(PreparingInstallStatus.Instance);
-            string downloadURL = null;
-#if NET472
+            string? downloadURL = null;
+#if NET5_0_OR_GREATER
+            if (OperatingSystem.IsLinux())
+            {
+                downloadURL = string.Format(downloadURLForLinux, version);
+            }
+            else if (OperatingSystem.IsWindows())
+            {
+                downloadURL = string.Format(downloadURLForWindows, version);
+            }
+#else
             PlatformID platformID = Environment.OSVersion.Platform;
             switch (platformID)
             {
@@ -122,15 +137,6 @@ namespace WitherTorch.Core.Servers
                     downloadURL = string.Format(downloadURLForWindows, version);
                     break;
             }
-#elif NET5_0_OR_GREATER
-            if (OperatingSystem.IsLinux())
-            {
-                downloadURL = string.Format(downloadURLForLinux, version);
-            }
-            else if (OperatingSystem.IsWindows())
-            {
-                downloadURL = string.Format(downloadURLForWindows, version);
-            }
 #endif
             if (!InstallSoftware(task, downloadURL))
             {
@@ -139,13 +145,15 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private bool InstallSoftware(InstallTask task, string downloadUrl)
+        private bool InstallSoftware(InstallTask task, string? downloadUrl)
         {
             if (string.IsNullOrEmpty(downloadUrl))
                 return false;
             WebClient2 client = new WebClient2();
             InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+#pragma warning disable CS8604
             DownloadStatus status = new DownloadStatus(downloadUrl, 0);
+#pragma warning restore CS8604
             task.ChangeStatus(status);
             client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
             client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
@@ -153,9 +161,9 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        private void InstallSoftware_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
+        private void InstallSoftware_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
         {
-            if (!(e.UserState is InstallTask task) || !(task.Status is DownloadStatus status))
+            if (e.UserState is not InstallTask task || task.Status is not DownloadStatus status)
                 return;
 
             double percentage = e.ProgressPercentage;
@@ -163,13 +171,13 @@ namespace WitherTorch.Core.Servers
             task.ChangePercentage(percentage * 0.5);
         }
 
-        private void InstallSoftware_DownloadDataCompleted(object sender, DownloadDataCompletedEventArgs e)
+        private void InstallSoftware_DownloadDataCompleted(object? sender, DownloadDataCompletedEventArgs e)
         {
-            if (!(sender is WebClient2 client))
+            if (sender is not WebClient2 client)
                 return;
             client.DownloadProgressChanged -= InstallSoftware_DownloadProgressChanged;
             client.DownloadDataCompleted -= InstallSoftware_DownloadDataCompleted;
-            if (!(e.UserState is InstallTask task))
+            if (e.UserState is not InstallTask task)
                 return;
             if (task.Status is DownloadStatus downloadStatus)
             {
@@ -182,70 +190,68 @@ namespace WitherTorch.Core.Servers
                 return;
             }
             client.Dispose();
-            using (InstallTaskWatcher watcher = new InstallTaskWatcher(task, null))
-            using (MemoryStream stream = new MemoryStream(e.Result))
+            using InstallTaskWatcher watcher = new InstallTaskWatcher(task, null);
+            using MemoryStream stream = new MemoryStream(ObjectUtils.ThrowIfNull(e.Result));
+            try
             {
-                try
+                using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, true))
                 {
-                    using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, true))
+                    DecompessionStatus status = new DecompessionStatus();
+                    task.ChangeStatus(status);
+                    ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
+                    IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
+                    int currentCount = 0;
+                    int count = entries.Count;
+                    while (enumerator.MoveNext() && !watcher.IsStopRequested)
                     {
-                        DecompessionStatus status = new DecompessionStatus();
-                        task.ChangeStatus(status);
-                        ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
-                        IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
-                        int currentCount = 0;
-                        int count = entries.Count;
-                        while (enumerator.MoveNext() && !watcher.IsStopRequested)
+                        ZipArchiveEntry entry = enumerator.Current;
+                        string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
+                        if (filePath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)) // Is Directory
                         {
-                            ZipArchiveEntry entry = enumerator.Current;
-                            string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
-                            if (filePath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)) // Is Directory
-                            {
-                                if (!Directory.Exists(filePath))
-                                    Directory.CreateDirectory(filePath);
-                            }
-                            else // Is File
-                            {
-                                switch (entry.FullName)
-                                {
-                                    case "allowlist.json":
-                                    case "whitelist.json":
-                                    case "permissions.json":
-                                    case "server.properties":
-                                        if (!File.Exists(filePath))
-                                        {
-                                            goto default;
-                                        }
-                                        break;
-                                    default:
-                                        {
-                                            entry.ExtractToFile(filePath, true);
-                                        }
-                                        break;
-                                }
-                            }
-                            currentCount++;
-                            double percentage = currentCount * 100.0 / count;
-                            status.Percentage = percentage;
-                            task.ChangePercentage(50.0 + percentage * 0.5);
+                            if (!Directory.Exists(filePath))
+                                Directory.CreateDirectory(filePath);
                         }
-                    }
-                    stream.Close();
-                    if (watcher.IsStopRequested)
-                    {
-                        task.OnInstallFailed();
-                    }
-                    else
-                    {
-                        task.ChangePercentage(100);
-                        _version = task.Version;
-                        task.OnInstallFinished();
+                        else // Is File
+                        {
+                            switch (entry.FullName)
+                            {
+                                case "allowlist.json":
+                                case "whitelist.json":
+                                case "permissions.json":
+                                case "server.properties":
+                                    if (!File.Exists(filePath))
+                                    {
+                                        goto default;
+                                    }
+                                    break;
+                                default:
+                                    {
+                                        entry.ExtractToFile(filePath, true);
+                                    }
+                                    break;
+                            }
+                        }
+                        currentCount++;
+                        double percentage = currentCount * 100.0 / count;
+                        status.Percentage = percentage;
+                        task.ChangePercentage(50.0 + percentage * 0.5);
                     }
                 }
-                catch (Exception)
+                stream.Close();
+                if (watcher.IsStopRequested)
                 {
                     task.OnInstallFailed();
                 }
+                else
+                {
+                    task.ChangePercentage(100);
+                    _version = task.Version;
+                    task.OnInstallFinished();
+                }
+            }
+            catch (Exception)
+            {
+                task.OnInstallFailed();
             }
             GC.Collect(1, GCCollectionMode.Optimized, false, false);
         }
@@ -255,7 +261,7 @@ namespace WitherTorch.Core.Servers
             return _version;
         }
 
-        public override RuntimeEnvironment GetRuntimeEnvironment()
+        public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
             return null;
         }
@@ -270,24 +276,22 @@ namespace WitherTorch.Core.Servers
             return _versionsLazy.Value;
         }
 
-        public override void RunServer(RuntimeEnvironment environment)
+        public override bool RunServer(RuntimeEnvironment? environment)
         {
-            if (!_isStarted)
+            if (_isStarted)
+                return true;
+            string path = Path.Combine(ServerDirectory, "bedrock_server.exe");
+            if (!File.Exists(path))
+                return false;
+            ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                string path = Path.Combine(ServerDirectory, "bedrock_server.exe");
-                if (File.Exists(path))
-                {
-                    ProcessStartInfo startInfo = new ProcessStartInfo
-                    {
-                        FileName = path,
-                        WorkingDirectory = ServerDirectory,
-                        CreateNoWindow = true,
-                        ErrorDialog = true,
-                        UseShellExecute = false,
-                    };
-                    _process.StartProcess(startInfo);
-                }
-            }
+                FileName = path,
+                WorkingDirectory = ServerDirectory,
+                CreateNoWindow = true,
+                ErrorDialog = true,
+                UseShellExecute = false,
+            };
+            return _process.StartProcess(startInfo);
         }
 
         /// <inheritdoc/>
@@ -306,7 +310,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        public override void SetRuntimeEnvironment(RuntimeEnvironment environment)
+        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
         }
 
@@ -322,17 +326,21 @@ namespace WitherTorch.Core.Servers
 
         protected override bool OnServerLoading()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
-            string version = serverInfoJson["version"]?.ToString();
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
+            string? version = serverInfoJson["version"]?.ToString();
             if (string.IsNullOrEmpty(version))
                 return false;
-            _version = version;
+            _version = ObjectUtils.ThrowIfNull(version);
             return true;
         }
 
         protected override bool BeforeServerSaved()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
             serverInfoJson["version"] = _version;
             return true;
         }

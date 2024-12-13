@@ -1,12 +1,14 @@
-﻿using Newtonsoft.Json;
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
 using WitherTorch.Core.Utils;
+using System.Text.Json.Serialization;
+using System.Text.Json;
+
+
 
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
@@ -36,29 +38,27 @@ namespace WitherTorch.Core.Servers.Utils
             string[] _ = _versionsLazy.Value;
         }
 
-        [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
         private class VersionManifestModel
         {
-            [JsonProperty("versions", ItemIsReference = true)]
-            public VersionInfo[] Versions { get; set; }
+            [JsonPropertyName("versions")]
+            public VersionInfo[]? Versions { get; set; }
         }
 
-        [JsonObject(MemberSerialization = MemberSerialization.OptIn)]
         public sealed class VersionInfo : IComparable<string>, IComparable<VersionInfo>
         {
-            [JsonProperty("id")]
-            public string Id { get; set; }
+            [JsonPropertyName("id")]
+            public string? Id { get; set; }
 
-            [JsonProperty("url")]
-            public string ManifestURL { get; set; }
+            [JsonPropertyName("url")]
+            public string? ManifestURL { get; set; }
 
-            [JsonProperty("releaseTime")]
+            [JsonPropertyName("releaseTime")]
             public DateTime ReleaseTime { get; set; }
 
-            [JsonProperty("type")]
-            public string Type { get; set; }
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
 
-            int IComparable<string>.CompareTo(string other)
+            int IComparable<string>.CompareTo(string? other)
             {
                 if (other is null) return 0;
                 else if (VersionDictionary.ContainsKey(other))
@@ -68,7 +68,7 @@ namespace WitherTorch.Core.Servers.Utils
                 return 0;
             }
 
-            int IComparable<VersionInfo>.CompareTo(VersionInfo other)
+            int IComparable<VersionInfo>.CompareTo(VersionInfo? other)
             {
                 if (other is null) return 1;
                 else return ReleaseTime.CompareTo(other.ReleaseTime);
@@ -108,37 +108,32 @@ namespace WitherTorch.Core.Servers.Utils
             return EmptyDictionary<string, VersionInfo>.Instance;
         }
 
-        private static IReadOnlyDictionary<string, VersionInfo> LoadVersionListInternal()
+        private static IReadOnlyDictionary<string, VersionInfo>? LoadVersionListInternal()
         {
-            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
             if (string.IsNullOrEmpty(manifestString))
                 return null;
-            VersionManifestModel manifestJSON;
-            using (JsonTextReader reader = new JsonTextReader(new StringReader(manifestString)))
-            {
-                try
-                {
-                    manifestJSON = GlobalSerializers.JsonSerializer.Deserialize<VersionManifestModel>(reader);
-                }
-                catch (Exception)
-                {
-                    return null;
-                }
-                reader.Close();
-            }
+#pragma warning disable CS8604
+            VersionManifestModel? manifestJSON = JsonSerializer.Deserialize<VersionManifestModel>(manifestString);
+#pragma warning restore CS8604
             if (manifestJSON is null)
                 return null;
-            VersionInfo[] versions = manifestJSON.Versions;
+            VersionInfo[]? versions = manifestJSON.Versions;
+            if (versions is null)
+                return null;
             int count = versions.Length;
             if (count <= 0)
                 return null;
             Dictionary<string, VersionInfo> result = new Dictionary<string, VersionInfo>(count);
             for (int i = 0; i < count; i++)
             {
-                VersionInfo versionInfo = manifestJSON.Versions[i];
+                VersionInfo versionInfo = versions[i];
                 if (!IsValidTime(versionInfo.ReleaseTime))
                     continue;
-                result.Add(versionInfo.Id, versionInfo);
+                string? id = versionInfo.Id;
+                if (id is null)
+                    continue;
+                result.Add(id, versionInfo);
             }
 #if NET6_0_OR_GREATER
             return FrozenDictionary.ToFrozenDictionary(result);
@@ -164,19 +159,18 @@ namespace WitherTorch.Core.Servers.Utils
 
             private VersionComparer() { }
 
-            public int Compare(string x, string y)
+            public int Compare(string? x, string? y)
             {
-                bool success = VersionDictionary.TryGetValue(x, out VersionInfo infoA);
-                if (!success) return -1;
-                success = VersionDictionary.TryGetValue(y, out VersionInfo infoB);
-                if (success)
-                {
-                    return infoA.ReleaseTime.CompareTo(infoB.ReleaseTime);
-                }
-                else
-                {
+                if (x is null)
+                    return y is null ? 0 : -1;
+                if (y is null)
                     return 1;
-                }
+                IReadOnlyDictionary<string, VersionInfo> versionDict = VersionDictionary;
+                if (!versionDict.TryGetValue(x, out VersionInfo? infoA))
+                    return -1;
+                if (versionDict.TryGetValue(y, out VersionInfo? infoB))
+                    return infoA.ReleaseTime.CompareTo(infoB.ReleaseTime);
+                return 1;
             }
         }
     }

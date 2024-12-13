@@ -11,8 +11,8 @@ namespace WitherTorch.Core.Servers
         {
             _isStarted = false;
             SystemProcess process = new SystemProcess();
-            process.ProcessStarted += delegate (object sender, EventArgs e) { _isStarted = true; };
-            process.ProcessEnded += delegate (object sender, EventArgs e) { _isStarted = false; };
+            process.ProcessStarted += delegate (object? sender, EventArgs e) { _isStarted = true; };
+            process.ProcessEnded += delegate (object? sender, EventArgs e) { _isStarted = false; };
             _process = process;
         }
 

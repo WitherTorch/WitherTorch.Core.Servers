@@ -1,11 +1,12 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
+
+using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -33,12 +34,12 @@ namespace WitherTorch.Core.Servers
                 return result;
             }, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        private string _minecraftVersion;
-        private string _quiltLoaderVersion;
-        private JavaRuntimeEnvironment environment;
+        private string _minecraftVersion = string.Empty;
+        private string _quiltLoaderVersion = string.Empty;
+        private JavaRuntimeEnvironment? _environment;
         readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
 
-        public JavaPropertyFile ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
+        public JavaPropertyFile? ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
 
         static Quilt()
         {
@@ -60,12 +61,12 @@ namespace WitherTorch.Core.Servers
             return Array.Empty<string>();
         }
 
-        private static string[] LoadVersionListInternal()
+        private static string[]? LoadVersionListInternal()
         {
-            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-            if (string.IsNullOrEmpty(manifestString))
+            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            if (manifestString is null || manifestString.Length <= 0)
                 return null;
-            VersionStruct[] array = JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+            VersionStruct[]? array = JsonSerializer.Deserialize<VersionStruct[]>(manifestString);
             if (array is null)
                 return null;
             int length = array.Length;
@@ -95,15 +96,15 @@ namespace WitherTorch.Core.Servers
             return Array.Empty<VersionStruct>();
         }
 
-        private static VersionStruct[] LoadQuiltLoaderVersionsInternal()
+        private static VersionStruct[]? LoadQuiltLoaderVersionsInternal()
         {
-            string manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
-            if (string.IsNullOrEmpty(manifestString))
+            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURLForLoader);
+            if (manifestString is null || manifestString.Length <= 0)
                 return null;
-            return JsonConvert.DeserializeObject<VersionStruct[]>(manifestString);
+            return JsonSerializer.Deserialize<VersionStruct[]>(manifestString);
         }
 
-        public static string GetLatestStableQuiltLoaderVersion()
+        public static string? GetLatestStableQuiltLoaderVersion()
         {
             VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
             int count = loaderVersions.Length;
@@ -119,7 +120,7 @@ namespace WitherTorch.Core.Servers
         public override bool ChangeVersion(int versionIndex)
             => ChangeVersion(versionIndex, GetLatestStableQuiltLoaderVersion());
 
-        public bool ChangeVersion(int versionIndex, string quiltLoaderVersion)
+        public bool ChangeVersion(int versionIndex, string? quiltLoaderVersion)
         {
             return InstallSoftware(_versionsLazy.Value[versionIndex], quiltLoaderVersion);
         }
@@ -127,14 +128,16 @@ namespace WitherTorch.Core.Servers
         private bool InstallSoftware(string minecraftVersion)
             => InstallSoftware(minecraftVersion, GetLatestStableQuiltLoaderVersion());
 
-        private bool InstallSoftware(string minecraftVersion, string quiltLoaderVersion)
+        private bool InstallSoftware(string minecraftVersion, string? quiltLoaderVersion)
         {
-            if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(quiltLoaderVersion))
+            if (minecraftVersion is null || minecraftVersion.Length <= 0 ||
+                quiltLoaderVersion is null || quiltLoaderVersion.Length <= 0)
                 return false;
             InstallTask task = new InstallTask(this, minecraftVersion + "-" + quiltLoaderVersion);
-            void onInstallFinished(object sender, EventArgs e)
+            OnServerInstalling(task);
+            void onInstallFinished(object? sender, EventArgs e)
             {
-                if (!(sender is InstallTask _task))
+                if (sender is not InstallTask _task)
                     return;
                 task.InstallFinished -= onInstallFinished;
                 _minecraftVersion = minecraftVersion;
@@ -143,7 +146,6 @@ namespace WitherTorch.Core.Servers
                 OnServerVersionChanged();
             }
             task.InstallFinished += onInstallFinished;
-            OnServerInstalling(task);
             QuiltInstaller.Instance.Install(task, minecraftVersion, quiltLoaderVersion);
             return true;
         }
@@ -158,9 +160,9 @@ namespace WitherTorch.Core.Servers
         /// </summary>
         public string QuiltLoaderVersion => _quiltLoaderVersion;
 
-        public override RuntimeEnvironment GetRuntimeEnvironment()
+        public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
-            return environment;
+            return _environment;
         }
 
         public override IPropertyFile[] GetServerPropertyFiles()
@@ -178,38 +180,27 @@ namespace WitherTorch.Core.Servers
             return _loaderVersionKeysLazy.Value;
         }
 
-        public override void RunServer(RuntimeEnvironment environment)
+        public override bool RunServer(JavaRuntimeEnvironment? environment)
         {
-            if (!_isStarted)
+            if (_isStarted)
+                return true;
+            environment ??= RuntimeEnvironment.JavaDefault;
+            string? javaPath = environment.JavaPath;
+            if (javaPath is null || !File.Exists(javaPath))
+                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
+            ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                if (environment is null)
-                    environment = RuntimeEnvironment.JavaDefault;
-                if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                {
-                    string path = Path.Combine(ServerDirectory, "quilt-server-launch.jar");
-                    if (File.Exists(path))
-                    {
-                        string javaPath = javaRuntimeEnvironment.JavaPath;
-                        if (javaPath is null || !File.Exists(javaPath))
-                        {
-                            javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-                        }
-                        ProcessStartInfo startInfo = new ProcessStartInfo
-                        {
-                            FileName = javaPath,
-                            Arguments = string.Format("-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
-                            , javaRuntimeEnvironment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                            , path
-                            , javaRuntimeEnvironment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                            WorkingDirectory = ServerDirectory,
-                            CreateNoWindow = true,
-                            ErrorDialog = true,
-                            UseShellExecute = false,
-                        };
-                        _process.StartProcess(startInfo);
-                    }
-                }
-            }
+                FileName = javaPath,
+                Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
+                , environment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
+                , Path.Combine(ServerDirectory, "quilt-server-launch.jar")
+                , environment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
+                WorkingDirectory = ServerDirectory,
+                CreateNoWindow = true,
+                ErrorDialog = true,
+                UseShellExecute = false,
+            };
+            return _process.StartProcess(startInfo);
         }
 
         /// <inheritdoc/>
@@ -227,7 +218,7 @@ namespace WitherTorch.Core.Servers
                 }
             }
         }
-        protected override MojangAPI.VersionInfo BuildVersionInfo()
+        protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_minecraftVersion);
         }
@@ -249,52 +240,45 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override bool OnServerLoading()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
-            string minecraftVersion = serverInfoJson["version"]?.ToString();
-            if (string.IsNullOrEmpty(minecraftVersion))
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
+            string? minecraftVersion = serverInfoJson["version"]?.ToString();
+            if (minecraftVersion is null || minecraftVersion.Length <= 0)
                 return false;
             _minecraftVersion = minecraftVersion;
-            JToken quiltVerNode = serverInfoJson["quilt-version"];
-            if (quiltVerNode?.Type == JTokenType.String)
-            {
-                _quiltLoaderVersion = quiltVerNode.ToString();
-            }
-            else
-            {
+            JsonNode? quiltVerNode = serverInfoJson["quilt-version"];
+            if (quiltVerNode is null || quiltVerNode.GetValueKind() != JsonValueKind.String)
                 return false;
-            }
-            try
+            _quiltLoaderVersion = quiltVerNode.GetValue<string>();
+            propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
+            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
+            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
+            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
+            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
             {
-                propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
-                string jvmPath = (serverInfoJson["java.path"] as JValue)?.ToString() ?? null;
-                string jvmPreArgs = (serverInfoJson["java.preArgs"] as JValue)?.ToString() ?? null;
-                string jvmPostArgs = (serverInfoJson["java.postArgs"] as JValue)?.ToString() ?? null;
-                if (jvmPath != null || jvmPreArgs != null || jvmPostArgs != null)
-                {
-                    environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
-                }
-            }
-            catch (Exception)
-            {
-                return false;
+                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
             }
             return true;
         }
 
         /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment environment)
+        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                this.environment = javaRuntimeEnvironment;
+                this._environment = javaRuntimeEnvironment;
             else if (environment is null)
-                this.environment = null;
+                this._environment = null;
         }
 
         protected override bool BeforeServerSaved()
         {
-            JsonPropertyFile serverInfoJson = ServerInfoJson;
+            JsonPropertyFile? serverInfoJson = ServerInfoJson;
+            if (serverInfoJson is null)
+                return false;
             serverInfoJson["version"] = _minecraftVersion;
             serverInfoJson["quilt-version"] = _quiltLoaderVersion;
+            JavaRuntimeEnvironment? environment = _environment;
             if (environment is null)
             {
                 serverInfoJson["java.path"] = null;

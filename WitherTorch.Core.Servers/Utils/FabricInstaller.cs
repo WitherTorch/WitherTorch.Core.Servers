@@ -4,7 +4,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Xml;
+
 using WitherTorch.Core.Utils;
+
 using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -16,37 +18,27 @@ namespace WitherTorch.Core.Servers.Utils
     {
         private const string manifestListURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml";
         private const string downloadURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{0}/fabric-installer-{0}.jar";
-        private readonly static DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
-        private readonly static FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.jar"));
-        private readonly static FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.version"));
-        private event EventHandler UpdateStarted;
-        private event UpdateProgressEventHandler UpdateProgressChanged;
-        private event EventHandler UpdateFinished;
-        private static FabricInstaller _instance;
-        public static FabricInstaller Instance
+        private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
+        private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.jar"));
+        private static readonly FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.version"));
+        private static readonly Lazy<FabricInstaller> _instLazy = new Lazy<FabricInstaller>(() => new FabricInstaller(),
+            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+        private event EventHandler? UpdateStarted;
+        private event UpdateProgressEventHandler? UpdateProgressChanged;
+        private event EventHandler? UpdateFinished;
+
+        public static FabricInstaller Instance => _instLazy.Value;
+
+        private static bool CheckUpdate(out string? updatedVersion)
         {
-            get
-            {
-                if (_instance is null)
-                    _instance = new FabricInstaller();
-                return _instance;
-            }
-        }
-        public enum BuildTarget
-        {
-            CraftBukkit,
-            Spigot
-        }
-        private static bool CheckUpdate(out string updatedVersion)
-        {
-            string version = null, nowVersion;
+            string? version = null, nowVersion;
             if (workingDirectoryInfo.Exists)
             {
                 if (buildToolVersionInfo.Exists && buildToolFileInfo.Exists)
                 {
                     using (StreamReader reader = buildToolVersionInfo.OpenText())
                     {
-                        string versionText;
+                        string? versionText;
                         do
                         {
                             versionText = reader.ReadLine();
@@ -66,7 +58,7 @@ namespace WitherTorch.Core.Servers.Utils
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
                 manifestXML.LoadXml(client.DownloadString(manifestListURL));
             }
-            nowVersion = manifestXML.SelectSingleNode("//metadata/versioning/latest").InnerText;
+            nowVersion = manifestXML.SelectSingleNode("//metadata/versioning/latest")?.InnerText;
             if (version != nowVersion)
             {
                 version = null;
@@ -74,11 +66,13 @@ namespace WitherTorch.Core.Servers.Utils
             updatedVersion = nowVersion;
             return version is null;
         }
-        private void Update(InstallTask installTask, string version)
+        private void Update(InstallTask installTask, string? version)
         {
+            if (version is null || version.Length <= 0)
+                return;
             UpdateStarted?.Invoke(this, EventArgs.Empty);
-            WebClient2 client = new WebClient2();
-            void StopRequestedHandler(object sender, EventArgs e)
+            WebClient2? client = new WebClient2();
+            void StopRequestedHandler(object? sender, EventArgs e)
             {
                 try
                 {
@@ -91,11 +85,11 @@ namespace WitherTorch.Core.Servers.Utils
                 installTask.StopRequested -= StopRequestedHandler;
             };
             installTask.StopRequested += StopRequestedHandler;
-            client.DownloadProgressChanged += delegate (object sender, DownloadProgressChangedEventArgs e)
+            client.DownloadProgressChanged += delegate (object? sender, DownloadProgressChangedEventArgs e)
                         {
                             UpdateProgressChanged?.Invoke(e.ProgressPercentage);
                         };
-            client.DownloadFileCompleted += delegate (object sender, AsyncCompletedEventArgs e)
+            client.DownloadFileCompleted += delegate (object? sender, AsyncCompletedEventArgs e)
             {
                 client.Dispose();
                 client = null;
@@ -119,13 +113,13 @@ namespace WitherTorch.Core.Servers.Utils
             FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
             installTask.ChangeStatus(status);
             bool isStop = false;
-            void StopRequestedHandler(object sender, EventArgs e)
+            void StopRequestedHandler(object? sender, EventArgs e)
             {
                 isStop = true;
                 installTask.StopRequested -= StopRequestedHandler;
             };
             installTask.StopRequested += StopRequestedHandler;
-            bool hasUpdate = CheckUpdate(out string newVersion);
+            bool hasUpdate = CheckUpdate(out string? newVersion);
             installTask.StopRequested -= StopRequestedHandler;
             if (isStop) return;
             if (hasUpdate)
@@ -174,7 +168,12 @@ namespace WitherTorch.Core.Servers.Utils
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
-            System.Diagnostics.Process innerProcess = System.Diagnostics.Process.Start(startInfo);
+            Process? innerProcess = Process.Start(startInfo);
+            if (innerProcess is null)
+            {
+                task.OnInstallFailed();
+                return;
+            }
             innerProcess.EnableRaisingEvents = true;
             innerProcess.BeginOutputReadLine();
             innerProcess.BeginErrorReadLine();
