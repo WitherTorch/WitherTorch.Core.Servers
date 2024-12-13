@@ -39,7 +39,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="System.IO.Compression" Version="4.3.0" Condition="'$(TargetFramework)' == 'net6'" />
-		<PackageReference Include="System.Collections.Immutable" Version="8.0.0" Condition="'$(TargetFramework)' == 'net6'" />
+		<PackageReference Include="System.Collections.Immutable" Version="9.0.0" Condition="'$(TargetFramework)' == 'net6'" />
 		<PackageReference Include="System.Text.Json" Version="8.0.5" />
 		<PackageReference Include="YamlDotNet" Version="16.2.1" />
 	</ItemGroup>
