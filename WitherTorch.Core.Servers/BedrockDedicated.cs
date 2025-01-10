@@ -23,8 +23,8 @@ namespace WitherTorch.Core.Servers
     public class BedrockDedicated : LocalServer<BedrockDedicated>
     {
         private const string manifestListURL = "https://withertorch-bds-helper.vercel.app/api/latest";
-        private const string downloadURLForLinux = "https://minecraft.azureedge.net/bin-linux/bedrock-server-{0}.zip";
-        private const string downloadURLForWindows = "https://minecraft.azureedge.net/bin-win/bedrock-server-{0}.zip";
+        private const string downloadURLForLinux = "https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-{0}.zip";
+        private const string downloadURLForWindows = "https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-{0}.zip";
 
         private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList,
             System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
