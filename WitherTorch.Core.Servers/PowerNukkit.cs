@@ -90,7 +90,6 @@ namespace WitherTorch.Core.Servers
         private bool InstallSoftware(string version)
         {
             InstallTask task = new InstallTask(this, version);
-            OnServerInstalling(task);
             void onInstallFinished(object? sender, EventArgs e)
             {
                 if (sender is not InstallTask _task)
@@ -100,6 +99,7 @@ namespace WitherTorch.Core.Servers
                 OnServerVersionChanged();
             };
             task.InstallFinished += onInstallFinished;
+            OnServerInstalling(task);
             if (!InstallSoftware(task, version))
             {
                 task.OnInstallFailed();

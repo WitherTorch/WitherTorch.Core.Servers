@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace WitherTorch.Core
+namespace WitherTorch.Core.Servers
 {
     /// <summary>
     /// <b>WitherTorch.Core.Server</b> 的基礎控制類別，此類別是靜態類別<br/>
