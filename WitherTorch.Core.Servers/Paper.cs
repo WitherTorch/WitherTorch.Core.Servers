@@ -253,10 +253,10 @@ namespace WitherTorch.Core.Servers
             MojangAPI.VersionInfo? mc1_19 = Paper.mc1_19.Value;
             string path;
             if (mojangVersionInfo is null || mc1_19 is null || mojangVersionInfo < mc1_19)
-                path = "./paper.yml";
+                path = Path.Combine(ServerDirectory, "./paper.yml");
             else
             {
-                path = "./config/paper-global.yml";
+                path = Path.Combine(ServerDirectory, "./config/paper-global.yml");
                 if (!File.Exists(path))
                 {
                     string alt_path = Path.Combine(ServerDirectory, "./paper.yml");
