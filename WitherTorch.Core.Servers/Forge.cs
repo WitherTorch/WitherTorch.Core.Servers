@@ -9,6 +9,7 @@ using System.Xml;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Property;
 using YamlDotNet.Core.Tokens;
+using System.Runtime.CompilerServices;
 
 
 #if NET6_0_OR_GREATER
@@ -52,18 +53,36 @@ namespace WitherTorch.Core.Servers
             () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse())
         , LazyThreadSafetyMode.PublicationOnly);
 
-        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
         private string _minecraftVersion = string.Empty;
         private string _forgeVersion = string.Empty;
         private JavaRuntimeEnvironment? _environment;
 
-        public JavaPropertyFile? ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
+        private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        public JavaPropertyFile ServerPropertiesFile
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (JavaPropertyFile)propertyFilesLazy.Value[0];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private set
+            {
+                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile propertyFile = propertyFiles[0];
+                propertyFiles[0] = value;
+                propertyFile.Dispose();
+            }
+        }
 
         static Forge()
         {
             CallWhenStaticInitialize();
             SoftwareRegistrationDelegate += Initialize;
             SoftwareId = "forge";
+        }
+
+        public Forge()
+        {
+            propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         public override string ServerVersion => _minecraftVersion;
@@ -338,7 +357,16 @@ namespace WitherTorch.Core.Servers
 
         public override IPropertyFile[] GetServerPropertyFiles()
         {
-            return propertyFiles;
+            return propertyFilesLazy.Value;
+        }
+
+        private IPropertyFile[] GetServerPropertyFilesCore()
+        {
+            string directory = ServerDirectory;
+            return new IPropertyFile[1]
+            {
+                new JavaPropertyFile(Path.Combine(directory, "./server.properties")),
+            };
         }
 
         public override string[] GetSoftwareVersions()
@@ -465,18 +493,7 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override bool CreateServer()
-        {
-            try
-            {
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
-        }
+        protected override bool CreateServer() => true;
 
         /// <inheritdoc/>
         protected override bool OnServerLoading()
@@ -492,7 +509,6 @@ namespace WitherTorch.Core.Servers
                 return false;
             _minecraftVersion = minecraftVersion;
             _forgeVersion = forgeVersion;
-            propertyFiles[0] = new JavaPropertyFile(Path.GetFullPath(Path.Combine(ServerDirectory, "./server.properties")));
             string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
             string? jvmPreArgs = serverInfoJson["java.preArgs"]?.ToString() ?? null;
             string? jvmPostArgs = serverInfoJson["java.postArgs"]?.ToString() ?? null;
@@ -507,9 +523,9 @@ namespace WitherTorch.Core.Servers
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                this._environment = javaRuntimeEnvironment;
+                _environment = javaRuntimeEnvironment;
             else if (environment is null)
-                this._environment = null;
+                _environment = null;
         }
 
         protected override bool BeforeServerSaved()

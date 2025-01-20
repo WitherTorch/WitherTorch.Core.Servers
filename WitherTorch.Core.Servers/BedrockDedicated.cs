@@ -319,10 +319,7 @@ namespace WitherTorch.Core.Servers
             return InstallSoftware();
         }
 
-        protected override bool CreateServer()
-        {
-            return true;
-        }
+        protected override bool CreateServer() => true;
 
         protected override bool OnServerLoading()
         {

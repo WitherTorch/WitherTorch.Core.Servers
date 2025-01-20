@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
@@ -14,10 +16,50 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public class Spigot : AbstractJavaEditionServer<Spigot>
     {
-        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[3];
-        public JavaPropertyFile? ServerPropertiesFile => propertyFiles[0] as JavaPropertyFile;
-        public YamlPropertyFile? BukkitYMLFile => propertyFiles[1] as YamlPropertyFile;
-        public YamlPropertyFile? SpigotYMLFile => propertyFiles[2] as YamlPropertyFile;
+
+        private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        public JavaPropertyFile ServerPropertiesFile
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (JavaPropertyFile)propertyFilesLazy.Value[0];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private set
+            {
+                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile propertyFile = propertyFiles[0];
+                propertyFiles[0] = value;
+                propertyFile.Dispose();
+            }
+        }
+
+        public YamlPropertyFile BukkitYMLFile
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (YamlPropertyFile)propertyFilesLazy.Value[1];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private set
+            {
+                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile propertyFile = propertyFiles[1];
+                propertyFiles[1] = value;
+                propertyFile.Dispose();
+            }
+        }
+
+        public YamlPropertyFile SpigotYMLFile
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (YamlPropertyFile)propertyFilesLazy.Value[2];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private set
+            {
+                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile propertyFile = propertyFiles[2];
+                propertyFiles[2] = value;
+                propertyFile.Dispose();
+            }
+        }
 
         private string _version = string.Empty;
         private int _build = -1;
@@ -27,6 +69,11 @@ namespace WitherTorch.Core.Servers
         {
             CallWhenStaticInitialize();
             SoftwareId = "spigot";
+        }
+
+        public Spigot()
+        {
+            propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         public override string ServerVersion => _version;
@@ -78,7 +125,19 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
-            return propertyFiles;
+            return propertyFilesLazy.Value;
+        }
+
+        private IPropertyFile[] GetServerPropertyFilesCore()
+        {
+            string directory = ServerDirectory;
+            IPropertyFile[] result = new IPropertyFile[3]
+            {
+                new JavaPropertyFile(Path.Combine(directory, "./server.properties")),
+                new YamlPropertyFile(Path.Combine(directory, "./bukkit.yml")),
+                new YamlPropertyFile(Path.Combine(directory, "./spigot.yml"))
+            };
+            return result;
         }
 
         /// <inheritdoc/>
@@ -93,20 +152,7 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override bool CreateServer()
-        {
-            try
-            {
-                propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-                propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
-                propertyFiles[2] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./spigot.yml"));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
-        }
+        protected override bool CreateServer() => true;
 
         /// <inheritdoc/>
         protected override bool OnServerLoading()
@@ -123,9 +169,6 @@ namespace WitherTorch.Core.Servers
                 _build = 0;
             else
                 _build = buildNode.GetValue<int>();
-            propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-            propertyFiles[1] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./bukkit.yml"));
-            propertyFiles[2] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./spigot.yml"));
             string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
             string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
             string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
@@ -139,9 +182,9 @@ namespace WitherTorch.Core.Servers
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                this._environment = javaRuntimeEnvironment;
+                _environment = javaRuntimeEnvironment;
             else if (environment is null)
-                this._environment = null;
+                _environment = null;
         }
 
         /// <inheritdoc/>

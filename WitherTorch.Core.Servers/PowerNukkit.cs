@@ -9,6 +9,8 @@ using System.Xml;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
+using System.Runtime.CompilerServices;
+using System.Threading;
 
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
@@ -32,13 +34,33 @@ namespace WitherTorch.Core.Servers
 
         private string _version = string.Empty;
         private JavaRuntimeEnvironment? _environment;
-        private readonly IPropertyFile[] propertyFiles = new IPropertyFile[1];
-        public YamlPropertyFile? NukkitYMLFile => propertyFiles[0] as YamlPropertyFile;
+
+        private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        public YamlPropertyFile NukkitYMLFile
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (YamlPropertyFile)propertyFilesLazy.Value[0];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private set
+            {
+                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile propertyFile = propertyFiles[0];
+                propertyFiles[0] = value;
+                propertyFile.Dispose();
+            }
+        }
+
         public override string ServerVersion => _version;
 
         static PowerNukkit()
         {
             SoftwareId = "powerNukkit";
+        }
+
+        public PowerNukkit()
+        {
+            propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         private static IReadOnlyDictionary<string, string> LoadVersionList()
@@ -129,7 +151,16 @@ namespace WitherTorch.Core.Servers
 
         public override IPropertyFile[] GetServerPropertyFiles()
         {
-            return propertyFiles;
+            return propertyFilesLazy.Value;
+        }
+
+        private IPropertyFile[] GetServerPropertyFilesCore()
+        {
+            string directory = ServerDirectory;
+            return new IPropertyFile[1]
+            {
+                new JavaPropertyFile(Path.Combine(directory, "./nukkit.yml")),
+            };
         }
 
         public override string[] GetSoftwareVersions()
@@ -185,11 +216,11 @@ namespace WitherTorch.Core.Servers
         {
             if (environment is JavaRuntimeEnvironment runtimeEnvironment)
             {
-                this._environment = runtimeEnvironment;
+                _environment = runtimeEnvironment;
             }
             else if (environment is null)
             {
-                this._environment = null;
+                _environment = null;
             }
         }
 
@@ -198,18 +229,7 @@ namespace WitherTorch.Core.Servers
             return InstallSoftware(_version);
         }
 
-        protected override bool CreateServer()
-        {
-            try
-            {
-                propertyFiles[0] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./nukkit.yml"));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
-        }
+        protected override bool CreateServer() => true;
 
         protected override bool OnServerLoading()
         {
@@ -220,7 +240,6 @@ namespace WitherTorch.Core.Servers
             if (version is null || version.Length <= 0)
                 return false;
             _version = version;
-            propertyFiles[0] = new YamlPropertyFile(Path.Combine(ServerDirectory, "./nukkit.yml"));
             string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
             string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
             string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;

@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
@@ -42,10 +44,29 @@ namespace WitherTorch.Core.Servers
 
         private string _version = string.Empty;
         private JavaRuntimeEnvironment? _environment;
-        private readonly IPropertyFile[] _propertyFiles = new IPropertyFile[1];
 
-        public JavaPropertyFile? ServerPropertiesFile => _propertyFiles[0] as JavaPropertyFile;
+        private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        public JavaPropertyFile ServerPropertiesFile
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (JavaPropertyFile)propertyFilesLazy.Value[0];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private set
+            {
+                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile propertyFile = propertyFiles[0];
+                propertyFiles[0] = value;
+                propertyFile.Dispose();
+            }
+        }
+
         public override string ServerVersion => _version;
+
+        public JavaDedicated()
+        {
+            propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
+        }
 
         private static bool IsVanillaHasServer(MojangAPI.VersionInfo versionInfo)
         {
@@ -146,10 +167,18 @@ namespace WitherTorch.Core.Servers
             return _version;
         }
 
-        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
-            return _propertyFiles;
+            return propertyFilesLazy.Value;
+        }
+
+        private IPropertyFile[] GetServerPropertyFilesCore()
+        {
+            string directory = ServerDirectory;
+            return new IPropertyFile[1]
+            {
+                new JavaPropertyFile(Path.Combine(directory, "./server.properties")),
+            };
         }
 
         /// <inheritdoc/>
@@ -164,20 +193,7 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override bool CreateServer()
-        {
-            JavaPropertyFile propertyFile;
-            try
-            {
-                propertyFile = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            _propertyFiles[0] = propertyFile;
-            return true;
-        }
+        protected override bool CreateServer() => true;
 
         /// <inheritdoc/>
         protected override bool OnServerLoading()
@@ -189,7 +205,6 @@ namespace WitherTorch.Core.Servers
             if (version is null || version.Length <= 0)
                 return false;
             _version = version;
-            _propertyFiles[0] = new JavaPropertyFile(Path.Combine(ServerDirectory, "./server.properties"));
             string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
             string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
             string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
