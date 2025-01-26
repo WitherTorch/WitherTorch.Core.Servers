@@ -8,11 +8,6 @@ namespace WitherTorch.Core.Servers
         private bool _isStarted;
         protected readonly SystemProcess _process;
 
-        /// <summary>
-        /// 在 <see cref="RunServer(RuntimeEnvironment?)"/> 被呼叫且準備啟動伺服器時觸發
-        /// </summary>
-        public event EventHandler? BeforeRunServer;
-
         protected LocalServer()
         {
             _isStarted = false;
@@ -35,7 +30,7 @@ namespace WitherTorch.Core.Servers
             ProcessStartInfo? startInfo = PrepareProcessStartInfo(environment);
             if (startInfo is null)
                 return false;
-            BeforeRunServer?.Invoke(this, EventArgs.Empty);
+            OnBeforeRunServer();
             return _process.StartProcess(startInfo);
         }
 
