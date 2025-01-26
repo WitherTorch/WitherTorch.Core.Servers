@@ -43,7 +43,6 @@ namespace WitherTorch.Core.Servers
         }
 
         private string _version = string.Empty;
-        private JavaRuntimeEnvironment? _environment;
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
 
@@ -196,101 +195,23 @@ namespace WitherTorch.Core.Servers
         protected override bool CreateServer() => true;
 
         /// <inheritdoc/>
-        protected override bool OnServerLoading()
+        protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
-            JsonPropertyFile? serverInfoJson = ServerInfoJson;
-            if (serverInfoJson is null)
-                return false;
             string? version = (serverInfoJson["version"] as JsonValue)?.GetValue<string>();
             if (version is null || version.Length <= 0)
                 return false;
             _version = version;
-            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
-            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
-            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
-            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
-            {
-                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
-            }
-            return true;
+            return base.LoadServerCore(serverInfoJson);
         }
 
-        /// <inheritdoc/>
-        public override RuntimeEnvironment? GetRuntimeEnvironment()
+        protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
-            return _environment;
-        }
-
-        /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
-        {
-            if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
-                _environment = javaRuntimeEnvironment;
-            else if (environment is null)
-                _environment = null;
-        }
-
-        /// <inheritdoc/>
-        public override bool RunServer(JavaRuntimeEnvironment? environment)
-        {
-            if (_isStarted)
-                return true;
-            environment ??= RuntimeEnvironment.JavaDefault;
-            string? javaPath = environment.JavaPath;
-            if (javaPath is null || !File.Exists(javaPath))
-                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = javaPath,
-                Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
-                , environment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                , Path.Combine(ServerDirectory, @"minecraft_server." + GetReadableVersion() + ".jar")
-                , environment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                WorkingDirectory = ServerDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-            };
-            return _process.StartProcess(startInfo);
-        }
-
-        /// <inheritdoc/>
-        public override void StopServer(bool force)
-        {
-            if (_isStarted)
-            {
-                if (force)
-                {
-                    _process.Kill();
-                }
-                else
-                {
-                    _process.InputCommand("stop");
-                }
-            }
-        }
-
-        protected override bool BeforeServerSaved()
-        {
-            JsonPropertyFile? serverInfoJson = ServerInfoJson;
-            if (serverInfoJson is null)
-                return false;
             serverInfoJson["version"] = _version;
-            JavaRuntimeEnvironment? environment = _environment;
-            if (environment is null)
-            {
-                serverInfoJson["java.path"] = null;
-                serverInfoJson["java.preArgs"] = null;
-                serverInfoJson["java.postArgs"] = null;
-            }
-            else
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
-            return true;
+            return base.SaveServerCore(serverInfoJson);
         }
+
+        protected override string GetServerJarPath()
+            => Path.Combine(ServerDirectory, @"./minecraft_server." + GetReadableVersion() + ".jar");
 
         public override bool UpdateServer()
         {

@@ -168,48 +168,43 @@ namespace WitherTorch.Core.Servers
             return _versionsLazy.Value;
         }
 
-        public override bool RunServer(RuntimeEnvironment? environment)
+        protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
         {
-            return RunServer(environment as JavaRuntimeEnvironment);
-        }       
-        
-        public bool RunServer(JavaRuntimeEnvironment? environment)
+            if (environment is JavaRuntimeEnvironment currentEnv)
+                return PrepareProcessStartInfoCore(currentEnv);
+            return PrepareProcessStartInfoCore(RuntimeEnvironment.JavaDefault);
+        }
+
+        private ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
         {
-            if (_isStarted)
-                return true;
-            environment ??= RuntimeEnvironment.JavaDefault;
-            string? javaPath = environment.JavaPath;
-            if (javaPath is null || !File.Exists(javaPath))
-                javaPath = RuntimeEnvironment.JavaDefault.JavaPath;
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            string serverDirectory = ServerDirectory;
+            string jarPath = Path.Combine(serverDirectory, "./powernukkit-" + GetReadableVersion() + ".jar");
+            if (!File.Exists(jarPath))
+                return null;
+            return new ProcessStartInfo
             {
-                FileName = javaPath,
-                Arguments = string.Format("-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}"
-                , environment.JavaPreArguments ?? RuntimeEnvironment.JavaDefault.JavaPreArguments
-                , Path.Combine(ServerDirectory, @"powernukkit-" + GetReadableVersion() + ".jar")
-                , environment.JavaPostArguments ?? RuntimeEnvironment.JavaDefault.JavaPostArguments),
-                WorkingDirectory = ServerDirectory,
+                FileName = environment.JavaPath ?? "java",
+                Arguments = string.Format(
+                    "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
+                    environment.JavaPreArguments ?? string.Empty,
+                    jarPath,
+                    environment.JavaPostArguments ?? string.Empty
+                ),
+                WorkingDirectory = serverDirectory,
                 CreateNoWindow = true,
                 ErrorDialog = true,
                 UseShellExecute = false,
             };
-            return _process.StartProcess(startInfo);
         }
 
-        /// <inheritdoc/>
-        public override void StopServer(bool force)
+        protected override void StopServerCore(SystemProcess process, bool force)
         {
-            if (_isStarted)
+            if (force)
             {
-                if (force)
-                {
-                    _process.Kill();
-                }
-                else
-                {
-                    _process.InputCommand("stop");
-                }
+                process.Kill();
+                return;
             }
+            process.InputCommand("stop");
         }
 
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
@@ -231,11 +226,8 @@ namespace WitherTorch.Core.Servers
 
         protected override bool CreateServer() => true;
 
-        protected override bool OnServerLoading()
+        protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
-            JsonPropertyFile? serverInfoJson = ServerInfoJson;
-            if (serverInfoJson is null)
-                return false;
             string? version = serverInfoJson["version"]?.GetValue<string>();
             if (version is null || version.Length <= 0)
                 return false;
@@ -250,11 +242,8 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        protected override bool BeforeServerSaved()
+        protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
-            JsonPropertyFile? serverInfoJson = ServerInfoJson;
-            if (serverInfoJson is null)
-                return false;
             serverInfoJson["version"] = _version;
             JavaRuntimeEnvironment? environment = _environment;
             if (environment is null)

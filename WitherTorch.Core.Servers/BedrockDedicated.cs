@@ -276,38 +276,30 @@ namespace WitherTorch.Core.Servers
             return _versionsLazy.Value;
         }
 
-        public override bool RunServer(RuntimeEnvironment? environment)
+        protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
         {
-            if (_isStarted)
-                return true;
-            string path = Path.Combine(ServerDirectory, "bedrock_server.exe");
+            string serverDirectory = ServerDirectory;
+            string path = Path.Combine(serverDirectory, "./bedrock_server.exe");
             if (!File.Exists(path))
-                return false;
-            ProcessStartInfo startInfo = new ProcessStartInfo
+                return null;
+            return new ProcessStartInfo
             {
                 FileName = path,
-                WorkingDirectory = ServerDirectory,
+                WorkingDirectory = serverDirectory,
                 CreateNoWindow = true,
                 ErrorDialog = true,
                 UseShellExecute = false,
             };
-            return _process.StartProcess(startInfo);
         }
 
-        /// <inheritdoc/>
-        public override void StopServer(bool force)
+        protected override void StopServerCore(SystemProcess process, bool force)
         {
-            if (_isStarted)
+            if (force)
             {
-                if (force)
-                {
-                    _process.Kill();
-                }
-                else
-                {
-                    _process.InputCommand("stop");
-                }
+                process.Kill();
+                return;
             }
+            process.InputCommand("stop");
         }
 
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
@@ -321,11 +313,8 @@ namespace WitherTorch.Core.Servers
 
         protected override bool CreateServer() => true;
 
-        protected override bool OnServerLoading()
+        protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
-            JsonPropertyFile? serverInfoJson = ServerInfoJson;
-            if (serverInfoJson is null)
-                return false;
             string? version = serverInfoJson["version"]?.ToString();
             if (string.IsNullOrEmpty(version))
                 return false;
@@ -333,11 +322,8 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        protected override bool BeforeServerSaved()
+        protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
-            JsonPropertyFile? serverInfoJson = ServerInfoJson;
-            if (serverInfoJson is null)
-                return false;
             serverInfoJson["version"] = _version;
             return true;
         }

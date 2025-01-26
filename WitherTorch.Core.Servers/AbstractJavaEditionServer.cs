@@ -1,6 +1,14 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
+using System.Text.Json;
 
 using WitherTorch.Core.Servers.Utils;
+
+using YamlDotNet.Core;
+using WitherTorch.Core.Property;
 
 namespace WitherTorch.Core.Servers
 {
@@ -9,6 +17,7 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public abstract class AbstractJavaEditionServer<T> : LocalServer<T>, IJavaEditionServer where T : AbstractJavaEditionServer<T>
     {
+        private JavaRuntimeEnvironment? _environment;
         protected MojangAPI.VersionInfo? mojangVersionInfo;
 
         protected static void CallWhenStaticInitialize()
@@ -40,14 +49,90 @@ namespace WitherTorch.Core.Servers
             return null;
         }
 
-        /// <inheritdoc cref="Server.RunServer(RuntimeEnvironment?)"/>
-        public override bool RunServer(RuntimeEnvironment? environment)
+        protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
-            return RunServer(environment as JavaRuntimeEnvironment);
+            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
+            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
+            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
+            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
+            {
+                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
+            }
+            return true;
         }
 
-        /// <inheritdoc cref="Server.RunServer(RuntimeEnvironment?)"/>
-        public abstract bool RunServer(JavaRuntimeEnvironment? environment);
+        protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
+        {
+            JavaRuntimeEnvironment? environment = _environment;
+            if (environment is null)
+            {
+                serverInfoJson["java.path"] = null;
+                serverInfoJson["java.preArgs"] = null;
+                serverInfoJson["java.postArgs"] = null;
+            }
+            else
+            {
+                serverInfoJson["java.path"] = environment.JavaPath;
+                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
+                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
+            }
+            return true;
+        }
+
+        /// <inheritdoc/>
+        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
+        {
+            if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
+                _environment = javaRuntimeEnvironment;
+            else if (environment is null)
+                _environment = null;
+        }
+
+        /// <inheritdoc/>
+        public override RuntimeEnvironment? GetRuntimeEnvironment()
+        {
+            return _environment;
+        }
+
+        protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
+        {
+            if (environment is JavaRuntimeEnvironment currentEnv)
+                return PrepareProcessStartInfoCore(currentEnv);
+            return PrepareProcessStartInfoCore(RuntimeEnvironment.JavaDefault);
+        }
+
+        protected virtual ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
+        {
+            string jarPath = GetServerJarPath();
+            if (!File.Exists(jarPath))
+                return null;
+            return new ProcessStartInfo
+            {
+                FileName = environment.JavaPath ?? "java",
+                Arguments = string.Format(
+                    "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
+                    environment.JavaPreArguments ?? string.Empty,
+                    jarPath,
+                    environment.JavaPostArguments ?? string.Empty
+                ),
+                WorkingDirectory = ServerDirectory,
+                CreateNoWindow = true,
+                ErrorDialog = true,
+                UseShellExecute = false,
+            };
+        }
+
+        protected abstract string GetServerJarPath();
+
+        protected override void StopServerCore(SystemProcess process, bool force)
+        {
+            if (force)
+            {
+                process.Kill();
+                return;
+            }
+            process.InputCommand("stop");
+        }
     }
 
     public interface IJavaEditionServer
