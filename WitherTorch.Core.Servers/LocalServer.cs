@@ -35,6 +35,7 @@ namespace WitherTorch.Core.Servers
             ProcessStartInfo? startInfo = PrepareProcessStartInfo(environment);
             if (startInfo is null)
                 return false;
+            BeforeRunServer?.Invoke(this, EventArgs.Empty);
             return _process.StartProcess(startInfo);
         }
 

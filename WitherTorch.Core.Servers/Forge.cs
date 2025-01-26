@@ -56,7 +56,6 @@ namespace WitherTorch.Core.Servers
 
         private string _minecraftVersion = string.Empty;
         private string _forgeVersion = string.Empty;
-        private JavaRuntimeEnvironment? _environment;
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
 
@@ -349,11 +348,6 @@ namespace WitherTorch.Core.Servers
         public override string GetReadableVersion()
         {
             return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _forgeVersion);
-        }
-
-        public override RuntimeEnvironment? GetRuntimeEnvironment()
-        {
-            return _environment;
         }
 
         public override IPropertyFile[] GetServerPropertyFiles()

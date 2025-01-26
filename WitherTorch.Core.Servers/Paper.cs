@@ -90,7 +90,6 @@ namespace WitherTorch.Core.Servers
 
         private string _version = string.Empty;
         private int _build = -1;
-        private JavaRuntimeEnvironment? _environment;
 
         static Paper()
         {

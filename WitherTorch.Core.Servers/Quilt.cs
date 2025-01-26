@@ -37,7 +37,6 @@ namespace WitherTorch.Core.Servers
 
         private string _minecraftVersion = string.Empty;
         private string _quiltLoaderVersion = string.Empty;
-        private JavaRuntimeEnvironment? _environment;
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
 
@@ -178,11 +177,6 @@ namespace WitherTorch.Core.Servers
         /// 取得 Quilt Loader 的版本號
         /// </summary>
         public string QuiltLoaderVersion => _quiltLoaderVersion;
-
-        public override RuntimeEnvironment? GetRuntimeEnvironment()
-        {
-            return _environment;
-        }
 
         public override IPropertyFile[] GetServerPropertyFiles()
         {
