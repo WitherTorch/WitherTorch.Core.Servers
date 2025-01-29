@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net;
+
 using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -36,7 +37,7 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 if (disposing)
                 {
-                    Task.StopRequested -= Task_StopRequested;   
+                    Task.StopRequested -= Task_StopRequested;
                 }
                 disposedValue = true;
             }

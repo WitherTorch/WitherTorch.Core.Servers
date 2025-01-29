@@ -1,41 +1,23 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text.Json.Nodes;
-using System.Text.Json;
-using System.Xml;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
-using System.Runtime.CompilerServices;
-using System.Threading;
-
-#if NET6_0_OR_GREATER
-using System.Collections.Frozen;
-#endif
 
 namespace WitherTorch.Core.Servers
 {
-    public class PowerNukkit : LocalServer<PowerNukkit>
+    public sealed partial class PowerNukkit : LocalServer
     {
-        private const string manifestListURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/maven-metadata.xml";
-        private const string downloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
-        private static readonly Lazy<IReadOnlyDictionary<string, string>> _versionDictLazy = new Lazy<IReadOnlyDictionary<string, string>>(
-            LoadVersionList, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
-            () =>
-            {
-                string[] result = _versionDictLazy.Value.Keys.ToArray();
-                Array.Reverse(result);
-                return result;
-            }, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
-
-        private string _version = string.Empty;
-        private JavaRuntimeEnvironment? _environment;
+        private const string DownloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
+        private const string SoftwareId = "powerNukkit";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+        private string _version = string.Empty;
+        private JavaRuntimeEnvironment? _environment;
 
         public YamlPropertyFile NukkitYMLFile
         {
@@ -53,89 +35,41 @@ namespace WitherTorch.Core.Servers
 
         public override string ServerVersion => _version;
 
-        static PowerNukkit()
-        {
-            SoftwareId = "powerNukkit";
-        }
+        public override string GetSoftwareId() => SoftwareId;
 
-        public PowerNukkit()
+        private PowerNukkit(string serverDirectory) : base(serverDirectory)
         {
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
-        private static IReadOnlyDictionary<string, string> LoadVersionList()
+        public override InstallTask? GenerateInstallServerTask(string version)
         {
-            try
-            {
-                return LoadVersionListInternal() ?? EmptyDictionary<string, string>.Instance;
-            }
-            catch (Exception)
-            {
-            }
-            return EmptyDictionary<string, string>.Instance;
-        }
-
-        private static IReadOnlyDictionary<string, string>? LoadVersionListInternal()
-        {
-            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-            if (manifestString is null || manifestString.Length <= 0)
+            if (string.IsNullOrWhiteSpace(version))
                 return null;
-            XmlDocument manifestXML = new XmlDocument();
-            manifestXML.LoadXml(manifestString);
-            XmlNodeList? nodeList = manifestXML.SelectNodes("/metadata/versioning/versions/version");
-            if (nodeList is null)
+            string fullVersionString = _software.QueryFullVersionString(version);
+            if (string.IsNullOrWhiteSpace(fullVersionString))
                 return null;
-            Dictionary<string, string> result = new Dictionary<string, string>();
-            foreach (XmlNode token in nodeList)
+
+            return new InstallTask(this, version, task =>
             {
-                string rawVersion = token.InnerText;
-                string version;
-                int indexOf = rawVersion.IndexOf("-PN");
-                if (indexOf >= 0)
-                    version = rawVersion.Substring(0, indexOf);
-                else
-                    version = rawVersion;
-                result[version] = rawVersion;
-            }
-#if NET6_0_OR_GREATER
-            return result.ToFrozenDictionary();
-#else
-            return result;
-#endif
+                void onInstallFinished(object? sender, EventArgs e)
+                {
+                    if (sender is not InstallTask senderTask || senderTask.Owner is not PowerNukkit server)
+                        return;
+                    senderTask.InstallFinished -= onInstallFinished;
+                    server._version = version;
+                    server.OnServerVersionChanged();
+                };
+                task.InstallFinished += onInstallFinished;
+                if (!InstallServerCore(task, version, fullVersionString))
+                    task.OnInstallFailed();
+            });
         }
 
-        public override bool ChangeVersion(int versionIndex)
+        private bool InstallServerCore(InstallTask task, string version, string fullVersionString)
         {
-            return InstallSoftware(_versionsLazy.Value[versionIndex]);
-        }
-
-        private bool InstallSoftware(string version)
-        {
-            InstallTask task = new InstallTask(this, version);
-            void onInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask _task)
-                    return;
-                _task.InstallFinished -= onInstallFinished;
-                _version = version;
-                OnServerVersionChanged();
-            };
-            task.InstallFinished += onInstallFinished;
-            OnServerInstalling(task);
-            if (!InstallSoftware(task, version))
-            {
-                task.OnInstallFailed();
-                return false;
-            }
-            return true;
-        }
-
-        private bool InstallSoftware(InstallTask task, string version)
-        {
-            if (string.IsNullOrEmpty(version) || !_versionDictLazy.Value.TryGetValue(version, out string? fullVersionString))
-                return false;
             return FileDownloadHelper.AddTask(task: task,
-                downloadUrl: string.Format(downloadURL, fullVersionString),
+                downloadUrl: string.Format(DownloadURL, fullVersionString),
                 filename: Path.Combine(ServerDirectory, @"powernukkit-" + version + ".jar")).HasValue;
         }
 
@@ -161,11 +95,6 @@ namespace WitherTorch.Core.Servers
             {
                 new JavaPropertyFile(Path.Combine(directory, "./nukkit.yml")),
             };
-        }
-
-        public override string[] GetSoftwareVersions()
-        {
-            return _versionsLazy.Value;
         }
 
         protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
@@ -219,12 +148,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        public override bool UpdateServer()
-        {
-            return InstallSoftware(_version);
-        }
-
-        protected override bool CreateServer() => true;
+        protected override bool CreateServerCore() => true;
 
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
