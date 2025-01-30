@@ -65,21 +65,20 @@ namespace WitherTorch.Core.Servers
                 if (string.IsNullOrWhiteSpace(fabricLoaderVersion))
                     return null;
             }
-            return new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion, task =>
+            InstallTask result = new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion, 
+                task =>FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion));
+            void onInstallFinished(object? sender, EventArgs e)
             {
-                void onInstallFinished(object? sender, EventArgs e)
-                {
-                    if (sender is not InstallTask senderTask || senderTask.Owner is not Fabric server)
-                        return;
-                    senderTask.InstallFinished -= onInstallFinished;
-                    server._minecraftVersion = minecraftVersion;
-                    server._fabricLoaderVersion = fabricLoaderVersion;
-                    server._versionInfo = null;
-                    server.OnServerVersionChanged();
-                }
-                task.InstallFinished += onInstallFinished;
-                FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion);
-            });
+                if (sender is not InstallTask senderTask || senderTask.Owner is not Fabric server)
+                    return;
+                senderTask.InstallFinished -= onInstallFinished;
+                server._minecraftVersion = minecraftVersion;
+                server._fabricLoaderVersion = fabricLoaderVersion;
+                server._versionInfo = null;
+                server.OnServerVersionChanged();
+            }
+            result.InstallFinished += onInstallFinished;
+            return result;
         }
 
         public override string GetReadableVersion()
