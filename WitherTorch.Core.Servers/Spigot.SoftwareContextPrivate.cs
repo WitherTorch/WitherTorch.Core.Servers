@@ -6,13 +6,13 @@ namespace WitherTorch.Core.Servers
 {
     partial class Spigot
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static ISoftwareEntry Software => _software;
+        public static ISoftwareContext Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<Spigot>
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<Spigot>
         {
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override string[] GetSoftwareVersions() => SpigotAPI.Versions;
 

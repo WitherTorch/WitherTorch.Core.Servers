@@ -20,8 +20,8 @@ namespace WitherTorch.Core.Servers
     {
         private const string SoftwareId = "quilt";
 
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
-        public static ISoftwareEntry Software => _software;
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+        public static ISoftwareContext Software => _software;
 
         private string _minecraftVersion = string.Empty;
         private string _quiltLoaderVersion = string.Empty;

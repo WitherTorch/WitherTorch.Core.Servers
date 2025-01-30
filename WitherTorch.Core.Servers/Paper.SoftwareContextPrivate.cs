@@ -10,17 +10,17 @@ namespace WitherTorch.Core.Servers
 {
     partial class Paper
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static ISoftwareEntry Software => _software;
+        public static ISoftwareContext Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<Paper>
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<Paper>
         {
             private const string ManifestListURL = "https://api.papermc.io/v2/projects/paper";
 
             private readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
 
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override string[] GetSoftwareVersions() => _versionsLazy.Value;
 

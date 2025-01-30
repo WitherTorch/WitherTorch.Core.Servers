@@ -9,15 +9,15 @@ namespace WitherTorch.Core.Servers
 {
     partial class JavaDedicated
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static ISoftwareEntry Software => _software;
+        public static ISoftwareContext Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<JavaDedicated>
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<JavaDedicated>
         {
             private string[] _versions = Array.Empty<string>();
 
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override JavaDedicated? CreateServerInstance(string serverDirectory) => new JavaDedicated(serverDirectory);
 

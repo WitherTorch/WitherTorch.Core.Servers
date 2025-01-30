@@ -10,7 +10,7 @@ namespace WitherTorch.Core.Servers
 {
     partial class Quilt
     {
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<Quilt>, IFabricLikeSoftwareEntry
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<Quilt>, IFabricLikeSoftwareSoftware
         {
             private const string ManifestListURL = "https://meta.quiltmc.org/v3/versions/game";
             private const string ManifestListURLForLoader = "https://meta.quiltmc.org/v3/versions/loader";
@@ -20,7 +20,7 @@ namespace WitherTorch.Core.Servers
                 new Lazy<VersionStruct[]>(LoadQuiltLoaderVersions, LazyThreadSafetyMode.ExecutionAndPublication);
             private readonly Lazy<string[]> _loaderVersionKeysLazy;
 
-            public SoftwareEntryPrivate() : base(SoftwareId)
+            public SoftwareContextPrivate() : base(SoftwareId)
             {
                 _loaderVersionKeysLazy = new Lazy<string[]>(LoadQuiltLoaderVersionKeys, LazyThreadSafetyMode.PublicationOnly);
             }

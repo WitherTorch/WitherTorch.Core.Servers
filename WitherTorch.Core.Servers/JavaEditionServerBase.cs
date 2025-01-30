@@ -126,9 +126,9 @@ namespace WitherTorch.Core.Servers
             process.InputCommand("stop");
         }
 
-        protected abstract class SoftwareEntryBase<T> : Core.Software.SoftwareEntryBase<T> where T : JavaEditionServerBase
+        protected abstract class SoftwareContextBase<T> : Core.Software.SoftwareContextBase<T> where T : JavaEditionServerBase
         {
-            public SoftwareEntryBase(string softwareId) : base(softwareId) { }
+            public SoftwareContextBase(string softwareId) : base(softwareId) { }
 
             public override bool TryInitialize()
             {

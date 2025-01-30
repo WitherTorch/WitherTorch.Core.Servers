@@ -8,18 +8,18 @@ namespace WitherTorch.Core.Servers
 {
     partial class BedrockDedicated
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static ISoftwareEntry Software => _software;
+        public static ISoftwareContext Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<BedrockDedicated>
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<BedrockDedicated>
         {
             private const string ManifestListURL = "https://withertorch-bds-helper.vercel.app/api/latest";
 
             private readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList,
                 System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
 
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override string[] GetSoftwareVersions() => _versionsLazy.Value;
 

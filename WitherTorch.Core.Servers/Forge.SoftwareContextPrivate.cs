@@ -14,9 +14,9 @@ namespace WitherTorch.Core.Servers
 {
     partial class Forge
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static IForgeLikeSoftwareEntry Software => _software;
+        public static IForgeLikeSoftwareSoftware Software => _software;
 
         private sealed class ForgeVersionEntry
         {
@@ -31,7 +31,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<Forge>, IForgeLikeSoftwareEntry
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<Forge>, IForgeLikeSoftwareSoftware
         {
             private const string ManifestListURL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
 
@@ -41,7 +41,7 @@ namespace WitherTorch.Core.Servers
 
             public IReadOnlyDictionary<string, ForgeVersionEntry[]> VersionDictionary => _versionDict;
 
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override string[] GetSoftwareVersions() => _versions;
 

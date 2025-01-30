@@ -6,12 +6,12 @@ namespace WitherTorch.Core.Servers
 {
     partial class CraftBukkit
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
-        public static ISoftwareEntry Software => _software;
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+        public static ISoftwareContext Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<CraftBukkit>
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<CraftBukkit>
         {
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override string[] GetSoftwareVersions() => SpigotAPI.Versions;
 

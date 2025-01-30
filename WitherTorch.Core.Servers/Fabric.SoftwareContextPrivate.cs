@@ -11,11 +11,11 @@ namespace WitherTorch.Core.Servers
 {
     partial class Fabric
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static IFabricLikeSoftwareEntry Software => _software;
+        public static IFabricLikeSoftwareSoftware Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<Fabric>, IFabricLikeSoftwareEntry
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<Fabric>, IFabricLikeSoftwareSoftware
         {
             private const string ManifestListURL = "https://meta.fabricmc.net/v2/versions/game";
             private const string ManifestListURLForLoader = "https://meta.fabricmc.net/v2/versions/loader";
@@ -26,7 +26,7 @@ namespace WitherTorch.Core.Servers
                 new Lazy<VersionStruct[]>(LoadFabricLoaderVersions, LazyThreadSafetyMode.ExecutionAndPublication);
             private readonly Lazy<string[]> _loaderVersionKeysLazy;
 
-            public SoftwareEntryPrivate() : base(SoftwareId)
+            public SoftwareContextPrivate() : base(SoftwareId)
             {
                 _loaderVersionKeysLazy = new Lazy<string[]>(LoadFabricLoaderVersionKeys, LazyThreadSafetyMode.PublicationOnly);
             }

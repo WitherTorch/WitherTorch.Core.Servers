@@ -15,11 +15,11 @@ namespace WitherTorch.Core.Servers
 {
     partial class PowerNukkit
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static ISoftwareEntry Software => _software;
+        public static ISoftwareContext Software => _software;
 
-        private sealed class SoftwareEntryPrivate : SoftwareEntryBase<PowerNukkit>
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<PowerNukkit>
         {
             private const string ManifestListURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/maven-metadata.xml";
 
@@ -27,7 +27,7 @@ namespace WitherTorch.Core.Servers
                 LoadVersionDictionary, LazyThreadSafetyMode.ExecutionAndPublication);
             private readonly Lazy<string[]> _versionsLazy;
 
-            public SoftwareEntryPrivate() : base(SoftwareId)
+            public SoftwareContextPrivate() : base(SoftwareId)
             {
                 _versionsLazy = new Lazy<string[]>(GetVersionKeys, LazyThreadSafetyMode.PublicationOnly);
             }

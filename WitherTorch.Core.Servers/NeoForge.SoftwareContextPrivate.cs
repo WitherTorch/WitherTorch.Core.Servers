@@ -16,9 +16,9 @@ namespace WitherTorch.Core.Servers
 {
     partial class NeoForge
     {
-        private static readonly SoftwareEntryPrivate _software = new SoftwareEntryPrivate();
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
-        public static IForgeLikeSoftwareEntry Software => _software;
+        public static IForgeLikeSoftwareSoftware Software => _software;
 
         private sealed class ForgeVersionEntry
         {
@@ -33,7 +33,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private class SoftwareEntryPrivate : SoftwareEntryBase<NeoForge>, IForgeLikeSoftwareEntry
+        private class SoftwareContextPrivate : SoftwareContextBase<NeoForge>, IForgeLikeSoftwareSoftware
         {
             private const string LegacyManifestListURL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml";
             private const string ManifestListURL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
@@ -44,7 +44,7 @@ namespace WitherTorch.Core.Servers
 
             public IReadOnlyDictionary<string, ForgeVersionEntry[]> VersionDictionary => _versionDict;
 
-            public SoftwareEntryPrivate() : base(SoftwareId) { }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override string[] GetSoftwareVersions() => _versions;
 
