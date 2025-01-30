@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
@@ -14,10 +14,14 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Spigot 伺服器
     /// </summary>
-    public class Spigot : AbstractJavaEditionServer<Spigot>
+    public sealed partial class Spigot : JavaEditionServerBase
     {
+        private const string SoftwareId = "spigot";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        private string _version = string.Empty;
+        private int _build = -1;
 
         public JavaPropertyFile ServerPropertiesFile
         {
@@ -61,67 +65,46 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private string _version = string.Empty;
-        private int _build = -1;
-
-        static Spigot()
-        {
-            CallWhenStaticInitialize();
-            SoftwareId = "spigot";
-        }
-
-        public Spigot()
+        private Spigot(string serverDirectory) : base(serverDirectory)
         {
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         public override string ServerVersion => _version;
 
-        public override bool ChangeVersion(int versionIndex)
+        public override string GetSoftwareId() => SoftwareId;
+
+        public override InstallTask? GenerateInstallServerTask(string version)
         {
-            return InstallSoftware(SpigotAPI.Versions[versionIndex]);
+            int build = SpigotAPI.GetBuildNumber(version);
+            if (build < 0)
+                return null;
+            return InstallServerCore(version, build);
         }
 
-        private bool InstallSoftware(string version)
+        private InstallTask? InstallServerCore(string minecraftVersion, int build)
         {
-            try
+            return new InstallTask(this, minecraftVersion, task =>
             {
-                int build = SpigotAPI.GetBuildNumber(version);
-                if (build < 0)
-                    return false;
-                InstallSoftware(version, build);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
+                void onServerInstallFinished(object? sender, EventArgs e)
+                {
+                    if (sender is not InstallTask senderTask || senderTask.Owner is not Spigot server)
+                        return;
+                    senderTask.InstallFinished -= onServerInstallFinished;
+                    server._version = minecraftVersion;
+                    server._build = build;
+                    server.OnServerVersionChanged();
+                }
+                task.InstallFinished += onServerInstallFinished;
+                SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.Spigot, minecraftVersion);
+            });
         }
 
-        private void InstallSoftware(string minecraftVersion, int build)
-        {
-            InstallTask task = new InstallTask(this, minecraftVersion);
-            void onServerInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask _task)
-                    return;
-                _task.InstallFinished -= onServerInstallFinished;
-                _version = minecraftVersion;
-                _build = build;
-                OnServerVersionChanged();
-            }
-            task.InstallFinished += onServerInstallFinished;
-            OnServerInstalling(task);
-            SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.Spigot, minecraftVersion);
-        }
-
-        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return _version;
         }
 
-        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -139,19 +122,12 @@ namespace WitherTorch.Core.Servers
             return result;
         }
 
-        /// <inheritdoc/>
-        public override string[] GetSoftwareVersions()
-        {
-            return SpigotAPI.Versions;
-        }
-
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_version);
         }
 
-        /// <inheritdoc/>
-        protected override bool CreateServer() => true;
+        protected override bool CreateServerCore() => true;
 
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
@@ -163,7 +139,7 @@ namespace WitherTorch.Core.Servers
             if (buildNode is null || buildNode.GetValueKind() != JsonValueKind.Number)
                 _build = 0;
             else
-                _build = buildNode.GetValue<int>(); 
+                _build = buildNode.GetValue<int>();
             return base.LoadServerCore(serverInfoJson);
         }
 
@@ -176,10 +152,5 @@ namespace WitherTorch.Core.Servers
 
         protected override string GetServerJarPath()
             => Path.Combine(ServerDirectory, @"./spigot-" + GetReadableVersion() + ".jar");
-
-        public override bool UpdateServer()
-        {
-            return InstallSoftware(_version);
-        }
     }
 }

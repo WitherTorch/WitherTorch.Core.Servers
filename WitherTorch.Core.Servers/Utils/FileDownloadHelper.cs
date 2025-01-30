@@ -5,7 +5,9 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+
 using WitherTorch.Core.Utils;
+
 using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -99,7 +101,7 @@ namespace WitherTorch.Core.Servers.Utils
         public static event EventHandler<int>? TaskFailed;
 
         public static int? AddTask(InstallTask task, string downloadUrl, string filename, WebClient2? webClient = null,
-            double initPercentage = 0.0, double percentageMultiplier = 1.0, byte[]? hash = null, 
+            double initPercentage = 0.0, double percentageMultiplier = 1.0, byte[]? hash = null,
             HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None,
             bool disposeWebClientAfterUsed = true)
         {

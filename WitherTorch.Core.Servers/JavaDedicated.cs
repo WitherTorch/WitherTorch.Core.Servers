@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
@@ -16,35 +14,13 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Java 原版伺服器
     /// </summary>
-    public class JavaDedicated : AbstractJavaEditionServer<JavaDedicated>
+    public partial class JavaDedicated : JavaEditionServerBase
     {
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(() =>
-        {
-            List<string> result = new List<string>();
-            var dict = MojangAPI.VersionDictionary;
-            foreach (MojangAPI.VersionInfo info in dict.Values)
-            {
-                if (!IsVanillaHasServer(info))
-                    continue;
-                string? id = info.Id;
-                if (id is null)
-                    continue;
-                result.Add(id);
-            }
-            string[] array = result.ToArray();
-            Array.Sort(array, MojangAPI.VersionComparer.Instance.Reverse());
-            return array;
-        }, System.Threading.LazyThreadSafetyMode.PublicationOnly);
-
-        static JavaDedicated()
-        {
-            CallWhenStaticInitialize();
-            SoftwareId = "javaDedicated";
-        }
-
-        private string _version = string.Empty;
+        private const string SoftwareId = "javaDedicated";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        private string _version = string.Empty;
 
         public JavaPropertyFile ServerPropertiesFile
         {
@@ -62,60 +38,45 @@ namespace WitherTorch.Core.Servers
 
         public override string ServerVersion => _version;
 
-        public JavaDedicated()
+        public override string GetSoftwareId() => SoftwareId;
+
+        private JavaDedicated(string serverDirectory) : base(serverDirectory)
         {
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
-        private static bool IsVanillaHasServer(MojangAPI.VersionInfo versionInfo)
+        public override InstallTask? GenerateInstallServerTask(string version)
         {
-            DateTime time = versionInfo.ReleaseTime;
-            int year = time.Year;
-            int month = time.Month;
-            int day = time.Day;
-            if (year > 2012 || (year == 2012 && (month > 3 || (month == 3 && day >= 29)))) //1.2.5 開始有 server 版本 (1.2.5 發布日期: 2012/3/29)
-            {
-                return true;
-            }
-            return false;
+            MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
+            if (versionInfo is null)
+                return null;
+            return InstallServerCore(versionInfo);
         }
 
-        private bool InstallSoftware(MojangAPI.VersionInfo? versionInfo)
+        private InstallTask? InstallServerCore(MojangAPI.VersionInfo versionInfo)
         {
-            if (versionInfo is null)
-                return false;
             string? id = versionInfo.Id;
             if (id is null || id.Length <= 0)
-                return false;
-            InstallTask task = new InstallTask(this, id);
-            void onInstallFinished(object? sender, EventArgs e)
+                return null;
+            return new InstallTask(this, id, task =>
             {
-                if (sender is not InstallTask _task)
-                    return;
-                _task.InstallFinished -= onInstallFinished;
-                _version = id;
-                mojangVersionInfo = versionInfo;
-                OnServerVersionChanged();
-            };
-            task.InstallFinished += onInstallFinished;
-            OnServerInstalling(task);
-            task.ChangeStatus(PreparingInstallStatus.Instance);
-            Task.Factory.StartNew(() =>
-            {
-                try
+                void onInstallFinished(object? sender, EventArgs e)
                 {
-                    if (!InstallSoftware(task, versionInfo))
-                        task.OnInstallFailed();
-                }
-                catch (Exception)
-                {
+                    if (sender is not InstallTask senderTask || senderTask.Owner is not JavaDedicated server)
+                        return;
+                    senderTask.InstallFinished -= onInstallFinished;
+                    server._version = id;
+                    server._versionInfo = versionInfo;
+                    server.OnServerVersionChanged();
+                };
+                task.InstallFinished += onInstallFinished;
+                task.ChangeStatus(PreparingInstallStatus.Instance);
+                if (!InstallServerCore(task, versionInfo))
                     task.OnInstallFailed();
-                }
-            }, default, TaskCreationOptions.LongRunning, TaskScheduler.Current);
-            return true;
+            });
         }
 
-        private bool InstallSoftware(InstallTask task, MojangAPI.VersionInfo versionInfo)
+        private bool InstallServerCore(InstallTask task, MojangAPI.VersionInfo versionInfo)
         {
             string? manifestURL = versionInfo.ManifestURL;
             if (manifestURL is null || manifestURL.Length <= 0)
@@ -142,34 +103,9 @@ namespace WitherTorch.Core.Servers
                 hash: sha1, hashMethod: HashHelper.HashMethod.SHA1).HasValue;
         }
 
-        /// <inheritdoc/>
-        public override bool ChangeVersion(int versionIndex)
-        {
-            return InstallSoftware(MojangAPI.Versions[versionIndex]);
-        }
+        public override string GetReadableVersion() => _version;
 
-        private bool InstallSoftware(string version)
-        {
-            try
-            {
-                return InstallSoftware(FindVersionInfo(version));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        /// <inheritdoc/>
-        public override string GetReadableVersion()
-        {
-            return _version;
-        }
-
-        public override IPropertyFile[] GetServerPropertyFiles()
-        {
-            return propertyFilesLazy.Value;
-        }
+        public override IPropertyFile[] GetServerPropertyFiles() => propertyFilesLazy.Value;
 
         private IPropertyFile[] GetServerPropertyFilesCore()
         {
@@ -180,21 +116,10 @@ namespace WitherTorch.Core.Servers
             };
         }
 
-        /// <inheritdoc/>
-        public override string[] GetSoftwareVersions()
-        {
-            return _versionsLazy.Value;
-        }
+        protected override MojangAPI.VersionInfo? BuildVersionInfo() => FindVersionInfo(_version);
 
-        protected override MojangAPI.VersionInfo? BuildVersionInfo()
-        {
-            return FindVersionInfo(_version);
-        }
+        protected override bool CreateServerCore() => true;
 
-        /// <inheritdoc/>
-        protected override bool CreateServer() => true;
-
-        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = (serverInfoJson["version"] as JsonValue)?.GetValue<string>();
@@ -212,10 +137,5 @@ namespace WitherTorch.Core.Servers
 
         protected override string GetServerJarPath()
             => Path.Combine(ServerDirectory, @"./minecraft_server." + GetReadableVersion() + ".jar");
-
-        public override bool UpdateServer()
-        {
-            return InstallSoftware(_version);
-        }
     }
 }

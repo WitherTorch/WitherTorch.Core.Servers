@@ -18,7 +18,7 @@ namespace WitherTorch.Core.Servers.Utils
         private const string manifestListURL = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/maven-metadata.xml";
         private const string manifestListURL2 = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/{0}/maven-metadata.xml";
         private static readonly Lazy<IReadOnlyDictionary<string, string>> _versionDictLazy =
-            new Lazy<IReadOnlyDictionary<string, string>>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
+            new Lazy<IReadOnlyDictionary<string, string>>(LoadVersionDictionary, LazyThreadSafetyMode.ExecutionAndPublication);
         private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
             () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse()),
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -30,11 +30,11 @@ namespace WitherTorch.Core.Servers.Utils
             var _ = _versionsLazy.Value;
         }
 
-        private static IReadOnlyDictionary<string, string> LoadVersionList()
+        private static IReadOnlyDictionary<string, string> LoadVersionDictionary()
         {
             try
             {
-                return LoadVersionListInternal() ?? EmptyDictionary<string, string>.Instance;
+                return LoadVersionDictionaryCore() ?? EmptyDictionary<string, string>.Instance;
             }
             catch (Exception)
             {
@@ -42,9 +42,13 @@ namespace WitherTorch.Core.Servers.Utils
             return EmptyDictionary<string, string>.Instance;
         }
 
-        private static IReadOnlyDictionary<string, string>? LoadVersionListInternal()
+        private static IReadOnlyDictionary<string, string>? LoadVersionDictionaryCore()
         {
-            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            CachedDownloadClient client = CachedDownloadClient.Instance;
+            HttpClient innerClient = client.InnerHttpClient;
+            innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Constants.UserAgent);
+            string? manifestString = client.DownloadString(manifestListURL);
+            innerClient.DefaultRequestHeaders.Remove("User-Agent");
             if (string.IsNullOrEmpty(manifestString))
                 return null;
             XmlDocument manifestXML = new XmlDocument();
@@ -93,7 +97,7 @@ namespace WitherTorch.Core.Servers.Utils
 
         private static int GetBuildNumberInternal(string url)
         {
-            string manifestString; 
+            string manifestString;
             using (HttpClient client = new HttpClient())
             {
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);

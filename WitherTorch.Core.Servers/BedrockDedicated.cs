@@ -5,160 +5,87 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 
+using WitherTorch.Core.Software;
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
-using YamlDotNet.Core;
-
 using static WitherTorch.Core.Utils.WebClient2;
 
 using Version = System.Version;
+using YamlDotNet.Core;
 
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
     /// Bedrock 原版伺服器
     /// </summary>
-    public class BedrockDedicated : LocalServer<BedrockDedicated>
+    public sealed partial class BedrockDedicated : LocalServer
     {
-        private const string manifestListURL = "https://withertorch-bds-helper.vercel.app/api/latest";
-        private const string downloadURLForLinux = "https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-{0}.zip";
-        private const string downloadURLForWindows = "https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-{0}.zip";
-
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList,
-            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+        private const string DownloadURLForLinux = "https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-{0}.zip";
+        private const string DownloadURLForWindows = "https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-{0}.zip";
+        private const string SoftwareId = "bedrockDedicated";
 
         private string _version = string.Empty;
 
-        static BedrockDedicated()
-        {
-            SoftwareId = "bedrockDedicated";
-        }
-
-        private static string[] LoadVersionList()
-        {
-            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-            if (manifestString is null)
-                return Array.Empty<string>();
-#if NET5_0_OR_GREATER
-            using (StringReader reader = new StringReader(manifestString))
-            {
-                while (reader.Peek() != -1)
-                {
-                    string? line = reader.ReadLine();
-                    if (string.IsNullOrEmpty(line))
-                        continue;
-                    if (OperatingSystem.IsLinux())
-                    {
-                        if (line[..6] == "linux=" && Version.TryParse(line = line[6..], out _))
-                        {
-                            return new string[] { line };
-                        }
-                    }
-                    else if (OperatingSystem.IsWindows())
-                    {
-                        if (line[..8] == "windows=" && Version.TryParse(line = line[8..], out _))
-                        {
-                            return new string[] { line };
-                        }
-                    }
-                }
-                reader.Close();
-            }
-#else 
-            PlatformID platformID = Environment.OSVersion.Platform;
-            using (StringReader reader = new StringReader(manifestString))
-            {
-                while (reader.Peek() != -1)
-                {
-                    string line = reader.ReadLine();
-                    switch (platformID)
-                    {
-                        case PlatformID.Unix:
-                            if (line.StartsWith("linux=") && Version.TryParse(line = line.Substring(6), out _))
-                            {
-                                return new string[] { line };
-                            }
-                            break;
-                        case PlatformID.Win32NT:
-                            if (line.StartsWith("windows=") && Version.TryParse(line = line.Substring(8), out _))
-                            {
-                                return new string[] { line };
-                            }
-                            break;
-                    }
-                }
-                reader.Close();
-            }
-#endif
-            return Array.Empty<string>();
-        }
+        private BedrockDedicated(string serverDirectory) : base(serverDirectory) { }
 
         public override string ServerVersion => _version;
 
-        public override bool ChangeVersion(int versionIndex)
-        {
-            return InstallSoftware();
-        }
+        public override string GetSoftwareId() => SoftwareId;
 
-        private bool InstallSoftware()
+        public override InstallTask? GenerateInstallServerTask(string version)
         {
-            string[] versions = _versionsLazy.Value;
-            if (versions.Length <= 0)
-                return false;
-            InstallSoftware(versions[0]);
-            return true;
-        }
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                string[] versions = _software.GetSoftwareVersions();
+                if (versions.Length <= 0)
+                    return null;
+                version = versions[0];
+                if (string.IsNullOrWhiteSpace(version))
+                    return null;
+            } 
 
-        public void InstallSoftware(string version)
-        {
-            InstallTask task = new InstallTask(this, version);
-            OnServerInstalling(task);
-            task.ChangeStatus(PreparingInstallStatus.Instance);
             string? downloadURL = null;
 #if NET5_0_OR_GREATER
             if (OperatingSystem.IsLinux())
             {
-                downloadURL = string.Format(downloadURLForLinux, version);
+                downloadURL = string.Format(DownloadURLForLinux, version);
             }
             else if (OperatingSystem.IsWindows())
             {
-                downloadURL = string.Format(downloadURLForWindows, version);
+                downloadURL = string.Format(DownloadURLForWindows, version);
             }
 #else
             PlatformID platformID = Environment.OSVersion.Platform;
             switch (platformID)
             {
                 case PlatformID.Unix:
-                    downloadURL = string.Format(downloadURLForLinux, version);
+                    downloadURL = string.Format(DownloadURLForLinux, version);
                     break;
                 case PlatformID.Win32NT:
-                    downloadURL = string.Format(downloadURLForWindows, version);
+                    downloadURL = string.Format(DownloadURLForWindows, version);
                     break;
             }
 #endif
-            if (!InstallSoftware(task, downloadURL))
-            {
-                task.OnInstallFailed();
-                return;
-            }
+
+            return InstallSoftware(version, downloadURL);
         }
 
-        private bool InstallSoftware(InstallTask task, string? downloadUrl)
+        private InstallTask? InstallSoftware(string version, string? downloadUrl)
         {
             if (string.IsNullOrEmpty(downloadUrl))
-                return false;
-            WebClient2 client = new WebClient2();
-            InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
-#pragma warning disable CS8604
-            DownloadStatus status = new DownloadStatus(downloadUrl, 0);
-#pragma warning restore CS8604
-            task.ChangeStatus(status);
-            client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
-            client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
-            client.DownloadDataAsync(new Uri(downloadUrl), task);
-            return true;
+                return null; 
+
+            return new InstallTask(this, version, task =>
+            {
+                WebClient2 client = new WebClient2();
+                InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+                task.ChangeStatus(new DownloadStatus(ObjectUtils.ThrowIfNull(downloadUrl), 0));
+                client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
+                client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
+                client.DownloadDataAsync(new Uri(downloadUrl), task);
+            });
         }
 
         private void InstallSoftware_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
@@ -271,11 +198,6 @@ namespace WitherTorch.Core.Servers
             return Array.Empty<IPropertyFile>();
         }
 
-        public override string[] GetSoftwareVersions()
-        {
-            return _versionsLazy.Value;
-        }
-
         protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
         {
             string serverDirectory = ServerDirectory;
@@ -306,12 +228,9 @@ namespace WitherTorch.Core.Servers
         {
         }
 
-        public override bool UpdateServer()
-        {
-            return InstallSoftware();
-        }
+        public override InstallTask? GenerateUpdateServerTask() => GenerateInstallServerTask(string.Empty);
 
-        protected override bool CreateServer() => true;
+        protected override bool CreateServerCore() => true;
 
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {

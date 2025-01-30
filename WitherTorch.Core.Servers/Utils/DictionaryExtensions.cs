@@ -18,7 +18,7 @@ namespace WitherTorch.Core.Servers.Utils
             }
             return result;
         }
-        
+
         public static TKey[] ToKeyArray<TKey, TValue>(this IReadOnlyDictionary<TKey, TValue> dict, IComparer<TKey> comparer)
         {
             TKey[] result = ToKeyArray(dict);
