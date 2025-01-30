@@ -1,14 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.CompilerServices;
-using System.Threading;
-
-using WitherTorch.Core.Utils;
-using System.Text.Json.Serialization;
 using System.Text.Json;
-
-
+using System.Text.Json.Serialization;
+using System.Threading;
 
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
@@ -153,7 +148,7 @@ namespace WitherTorch.Core.Servers.Utils
         public sealed class VersionComparer : IComparer<string>
         {
             private static readonly Lazy<VersionComparer> _instLazy = new Lazy<VersionComparer>(() => new VersionComparer(),
-                System.Threading.LazyThreadSafetyMode.PublicationOnly);
+                LazyThreadSafetyMode.PublicationOnly);
 
             public static VersionComparer Instance => _instLazy.Value;
 

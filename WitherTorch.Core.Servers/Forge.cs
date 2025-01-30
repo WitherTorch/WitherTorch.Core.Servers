@@ -11,7 +11,8 @@ using WitherTorch.Core.Property;
 using YamlDotNet.Core.Tokens;
 using System.Runtime.CompilerServices;
 using System.Linq;
-
+using WitherTorch.Core.Software;
+using System.Threading.Tasks;
 
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
@@ -22,25 +23,11 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Forge 伺服器
     /// </summary>
-    public class Forge : AbstractJavaEditionServer<Forge>
+    public partial class Forge : JavaEditionServerBase
     {
-        private sealed class ForgeVersionData
-        {
-            public readonly string version;
+        private const string DownloadURLPrefix = "https://maven.minecraftforge.net/net/minecraftforge/forge/";
+        private const string SoftwareId = "forge";
 
-            public readonly string versionRaw;
-
-            public ForgeVersionData(string version, string versionRaw)
-            {
-                this.version = version;
-                this.versionRaw = versionRaw;
-            }
-        }
-
-        private const string manifestListURL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
-        private const string downloadURLPrefix = "https://maven.minecraftforge.net/net/minecraftforge/forge/";
-
-        private static readonly int downloadURLPrefixLength = downloadURLPrefix.Length;
         private static readonly ThreadLocal<StringBuilder> localStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
         private static readonly Lazy<MojangAPI.VersionInfo?> mc1_3_2 = new Lazy<MojangAPI.VersionInfo?>(
             () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
@@ -48,11 +35,6 @@ namespace WitherTorch.Core.Servers
         private static readonly Lazy<MojangAPI.VersionInfo?> mc1_5_2 = new Lazy<MojangAPI.VersionInfo?>(
             () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
-        private static readonly Lazy<IReadOnlyDictionary<string, ForgeVersionData[]>> _versionDictLazy =
-            new Lazy<IReadOnlyDictionary<string, ForgeVersionData[]>>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
-            () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse())
-        , LazyThreadSafetyMode.PublicationOnly);
 
         private string _minecraftVersion = string.Empty;
         private string _forgeVersion = string.Empty;
@@ -73,143 +55,53 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        static Forge()
-        {
-            CallWhenStaticInitialize();
-            SoftwareRegistrationDelegate += Initialize;
-            SoftwareId = "forge";
-        }
-
-        public Forge()
+        private Forge(string serverDirectory) : base(serverDirectory)
         {
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         public override string ServerVersion => _minecraftVersion;
 
+        public override string GetSoftwareId() => SoftwareId;
+
         /// <summary>
         /// 取得 Forge 的版本號
         /// </summary>
         public string ForgeVersion => _forgeVersion;
 
-        private static void Initialize()
-        {
-            var _ = _versionsLazy.Value;
-        }
+        public override InstallTask? GenerateInstallServerTask(string version) => GenerateInstallServerTask(version, string.Empty);
 
-        private static IReadOnlyDictionary<string, ForgeVersionData[]> LoadVersionList()
+        /// <summary>
+        /// 生成一個裝載伺服器安裝流程的 <see cref="InstallTask"/> 物件
+        /// </summary>
+        /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
+        /// <param name="forgeVersion">要更改的 Forge 版本</param>
+        /// <returns>如果成功裝載安裝流程，則為一個有效的 <see cref="InstallTask"/> 物件，否則會回傳 <see langword="null"/></returns>
+        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string forgeVersion)
         {
-            try
-            {
-                return LoadVersionListInternal() ?? EmptyDictionary<string, ForgeVersionData[]>.Instance;
-            }
-            catch (Exception)
-            {
-            }
-            GC.Collect(2, GCCollectionMode.Optimized);
-            return EmptyDictionary<string, ForgeVersionData[]>.Instance;
-        }
-
-        private static IReadOnlyDictionary<string, ForgeVersionData[]>? LoadVersionListInternal()
-        {
-            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
-            if (string.IsNullOrEmpty(manifestString))
+            ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(minecraftVersion);
+            if (versions.Length <= 0)
                 return null;
-            XmlDocument manifestXML = new XmlDocument();
-            manifestXML.LoadXml(manifestString);
-            Dictionary<string, List<ForgeVersionData>> dict = new Dictionary<string, List<ForgeVersionData>>();
-            XmlNodeList? nodes = manifestXML.SelectNodes("/metadata/versioning/versions/version");
-            if (nodes is null)
+            ForgeVersionEntry? targetVersion;
+            if (string.IsNullOrWhiteSpace(forgeVersion))
+                targetVersion = versions[0];
+            else
+                targetVersion = Array.Find(versions, val => string.Equals(val.version, forgeVersion));
+            if (targetVersion is null)
                 return null;
-            foreach (XmlNode node in nodes)
-            {
-                string versionString = node.InnerText;
-                if (versionString is null)
-                    continue;
-                string[] versionSplits = versionString.Split(new char[] { '-' });
-                string version;
-                unsafe
-                {
-                    string rawVersion = versionSplits[0];
-                    fixed (char* rawVersionString = rawVersion)
-                    {
-                        char* iterator = rawVersionString;
-                        while (*iterator++ != '\0')
-                        {
-                            if (*iterator == '_')
-                            {
-                                *iterator = '-';
-                                break;
-                            }
-                        }
-                        version = new string(rawVersionString).Replace(".0", "");
-                    }
-                }
-                if (!dict.TryGetValue(version, out List<ForgeVersionData>? historyVersionList))
-                    dict.Add(version, historyVersionList = new List<ForgeVersionData>());
-                historyVersionList.Add(new ForgeVersionData(versionSplits[1], versionString));
-            }
-
-            Dictionary<string, ForgeVersionData[]> result = new Dictionary<string, ForgeVersionData[]>(dict.Count);
-            foreach (var pair in dict)
-            {
-                result.Add(pair.Key, pair.Value.ToArray());
-            }
-
-#if NET6_0_OR_GREATER
-            return FrozenDictionary.ToFrozenDictionary(result);
-#else
-            return result;
-#endif
+           return InstallServerCore(minecraftVersion, targetVersion);
         }
 
-        public override bool ChangeVersion(int versionIndex)
+        private InstallTask? InstallServerCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
         {
-            return InstallSoftware(_versionsLazy.Value[versionIndex], string.Empty);
-        }
-
-        public bool ChangeVersion(int versionIndex, string forgeVersion)
-        {
-            return InstallSoftware(_versionsLazy.Value[versionIndex], forgeVersion);
-        }
-
-        private bool InstallSoftware(string minecraftVersion, string forgeVersion)
-        {
-            try
+            return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, task =>
             {
-                IReadOnlyDictionary<string, ForgeVersionData[]> versionDict = _versionDictLazy.Value;
-                ForgeVersionData? selectedVersion;
-                if (string.IsNullOrEmpty(forgeVersion))
-                {
-                    selectedVersion = versionDict[minecraftVersion][0];
-                }
-                else
-                {
-                    selectedVersion = Array.Find(versionDict[minecraftVersion], x => x.version == forgeVersion);
-                    if (selectedVersion is null)
-                        return false;
-                }
-                InstallSoftware(minecraftVersion, selectedVersion);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
+                if (!InstallServerCore(task, minecraftVersion, selectedVersion))
+                    task.OnInstallFailed();
+            });
         }
 
-        private void InstallSoftware(string minecraftVersion, ForgeVersionData selectedVersion)
-        {
-            InstallTask task = new InstallTask(this, minecraftVersion + "-" + selectedVersion.version);
-            OnServerInstalling(task);
-            if (!InstallSoftware(task, minecraftVersion, selectedVersion))
-            {
-                task.OnInstallFailed();
-                return;
-            }
-        }
-
-        private bool InstallSoftware(InstallTask task, string minecraftVersion, ForgeVersionData selectedVersion)
+        private bool InstallServerCore(InstallTask task, string minecraftVersion, ForgeVersionEntry selectedVersion)
         {
             if (selectedVersion is null)
                 return false;
@@ -223,7 +115,7 @@ namespace WitherTorch.Core.Servers
             bool needInstall;
             string downloadURL;
             StringBuilder URLBuilder = ObjectUtils.ThrowIfNull(localStringBuilder.Value);
-            URLBuilder.Append(downloadURLPrefix);
+            URLBuilder.Append(DownloadURLPrefix);
             MojangAPI.VersionInfo? info = FindVersionInfo(minecraftVersion);
             if (info is null)
                 return false;
@@ -338,7 +230,7 @@ namespace WitherTorch.Core.Servers
                 task.StopRequested -= StopRequestedHandler;
                 _minecraftVersion = minecraftVersion;
                 _forgeVersion = forgeVersion;
-                mojangVersionInfo = null;
+                _versionInfo = null;
                 task.OnInstallFinished();
                 task.ChangePercentage(100);
                 innerProcess.Dispose();
@@ -364,29 +256,16 @@ namespace WitherTorch.Core.Servers
             };
         }
 
-        public override string[] GetSoftwareVersions()
-        {
-            return _versionsLazy.Value;
-        }
-
-        public static string[] GetForgeVersionsFromMCVersion(string mcVersion)
-        {
-            if (_versionDictLazy.Value.TryGetValue(mcVersion, out ForgeVersionData[]? versionPairs) == true)
-            {
-                int length = versionPairs.Length;
-                string[] result = new string[length];
-                for (int i = 0; i < length; i++)
-                {
-                    result[i] = versionPairs[i].version;
-                }
-                return result;
-            }
-            return Array.Empty<string>();
-        }
-
         private string GetFullVersionString()
         {
-            return Array.Find(_versionDictLazy.Value[_minecraftVersion], item => item.version == _forgeVersion)?.versionRaw ?? string.Empty;
+            ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(_minecraftVersion);
+            if (versions.Length <= 0)
+                return string.Empty;
+            string forgeVersion = _forgeVersion;
+            ForgeVersionEntry? versionData = Array.Find(versions, val => string.Equals(val.version, forgeVersion));
+            if (versionData is null)
+                return string.Empty;
+            return versionData.versionRaw;
         }
 
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
@@ -394,8 +273,7 @@ namespace WitherTorch.Core.Servers
             return FindVersionInfo(_minecraftVersion);
         }
 
-        /// <inheritdoc/>
-        protected override bool CreateServer() => true;
+        protected override bool CreateServerCore() => true;
 
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
@@ -421,7 +299,7 @@ namespace WitherTorch.Core.Servers
         {
             string fullVersionString = GetFullVersionString();
             string? path = GetPossibleForgePaths(fullVersionString)
-                .TakeWhile(File.Exists)
+                .Where(File.Exists)
                 .FirstOrDefault();
             if (path is null)
                 return PrepareProcessStartInfoForArgFile(environment, "@libraries/net/minecraftforge/forge/" + fullVersionString);
@@ -500,11 +378,6 @@ namespace WitherTorch.Core.Servers
             return GetPossibleForgePaths(GetFullVersionString())
                   .TakeWhile(File.Exists)
                   .FirstOrDefault() ?? string.Empty;
-        }
-
-        public override bool UpdateServer()
-        {
-            return InstallSoftware(_minecraftVersion, string.Empty);
         }
     }
 }

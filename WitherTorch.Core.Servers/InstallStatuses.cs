@@ -35,8 +35,8 @@
         public FabricInstallerStatus(ToolState state, double percentage) : base(state, percentage)
         {
         }
-    } 
-    
+    }
+
     public class QuiltInstallerStatus : FabricInstallerStatus
     {
         public QuiltInstallerStatus(ToolState state, double percentage) : base(state, percentage)

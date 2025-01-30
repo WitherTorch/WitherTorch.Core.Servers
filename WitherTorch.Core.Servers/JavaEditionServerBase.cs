@@ -1,29 +1,21 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Text.Json.Nodes;
-using System.Text.Json;
 
-using WitherTorch.Core.Servers.Utils;
-
-using YamlDotNet.Core;
 using WitherTorch.Core.Property;
+using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
     /// 此類別為 Java 版伺服器軟體之基底類別，無法直接使用
     /// </summary>
-    public abstract class AbstractJavaEditionServer<T> : LocalServer<T>, IJavaEditionServer where T : AbstractJavaEditionServer<T>
+    public abstract partial class JavaEditionServerBase : LocalServer
     {
+        protected MojangAPI.VersionInfo? _versionInfo;
         private JavaRuntimeEnvironment? _environment;
-        protected MojangAPI.VersionInfo? mojangVersionInfo;
 
-        protected static void CallWhenStaticInitialize()
-        {
-            SoftwareRegistrationDelegate = MojangAPI.Initialize; //呼叫 Mojang API 進行版本列表提取
-        }
+        protected JavaEditionServerBase(string serverDirectory) : base(serverDirectory) { }
 
         /// <summary>
         /// 子類別需實作此函式，作為 <c>mojangVersionInfo</c> 未主動生成時的備用生成方案
@@ -36,9 +28,9 @@ namespace WitherTorch.Core.Servers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public MojangAPI.VersionInfo? GetMojangVersionInfo()
         {
-            MojangAPI.VersionInfo? mojangVersionInfo = this.mojangVersionInfo;
+            MojangAPI.VersionInfo? mojangVersionInfo = _versionInfo;
             if (mojangVersionInfo is null)
-                this.mojangVersionInfo = mojangVersionInfo = BuildVersionInfo();
+                _versionInfo = mojangVersionInfo = BuildVersionInfo();
             return mojangVersionInfo;
         }
 
@@ -79,7 +71,7 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        /// <inheritdoc/>
+
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
@@ -88,7 +80,7 @@ namespace WitherTorch.Core.Servers
                 _environment = null;
         }
 
-        /// <inheritdoc/>
+
         public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
             return _environment;
@@ -133,10 +125,16 @@ namespace WitherTorch.Core.Servers
             }
             process.InputCommand("stop");
         }
-    }
 
-    public interface IJavaEditionServer
-    {
-        Utils.MojangAPI.VersionInfo? GetMojangVersionInfo();
+        protected abstract class SoftwareContextBase<T> : Core.Software.SoftwareContextBase<T> where T : JavaEditionServerBase
+        {
+            public SoftwareContextBase(string softwareId) : base(softwareId) { }
+
+            public override bool TryInitialize()
+            {
+                MojangAPI.Initialize(); //呼叫 Mojang API 進行版本列表提取
+                return true;
+            }
+        }
     }
 }

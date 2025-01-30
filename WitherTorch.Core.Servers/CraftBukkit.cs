@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
@@ -14,10 +14,14 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// CraftBukkit 伺服器
     /// </summary>
-    public class CraftBukkit : AbstractJavaEditionServer<CraftBukkit>
+    public partial class CraftBukkit : JavaEditionServerBase
     {
+        private const string SoftwareId = "craftbukkit";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+
+        private string _version = string.Empty;
+        private int _build = -1;
 
         public JavaPropertyFile ServerPropertiesFile
         {
@@ -47,67 +51,46 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private string _version = string.Empty;
-        private int _build = -1;
-
-        static CraftBukkit()
-        {
-            CallWhenStaticInitialize();
-            SoftwareId = "craftbukkit";
-        }
-
-        public CraftBukkit()
+        private CraftBukkit(string serverDirectory) : base(serverDirectory)
         {
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         public override string ServerVersion => _version;
 
-        public override bool ChangeVersion(int versionIndex)
+        public override string GetSoftwareId() => SoftwareId;
+
+        public override InstallTask? GenerateInstallServerTask(string version)
         {
-            return InstallSoftware(SpigotAPI.Versions[versionIndex]);
+            int build = SpigotAPI.GetBuildNumber(version);
+            if (build < 0)
+                return null;
+            return InstallServerCore(version, build);
         }
 
-        private bool InstallSoftware(string version)
+        private InstallTask? InstallServerCore(string minecraftVersion, int build)
         {
-            try
+            return new InstallTask(this, minecraftVersion, task =>
             {
-                int build = SpigotAPI.GetBuildNumber(version);
-                if (build < 0)
-                    return false;
-                InstallSoftware(version, build);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-            return true;
+                void onServerInstallFinished(object? sender, EventArgs e)
+                {
+                    if (sender is not InstallTask senderTask || senderTask.Owner is not CraftBukkit server)
+                        return;
+                    senderTask.InstallFinished -= onServerInstallFinished;
+                    server._version = minecraftVersion;
+                    server._build = build;
+                    server.OnServerVersionChanged();
+                }
+                task.InstallFinished += onServerInstallFinished;
+                SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion);
+            });
         }
 
-        private void InstallSoftware(string minecraftVersion, int build)
-        {
-            InstallTask task = new InstallTask(this, minecraftVersion);
-            void onServerInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask _task)
-                    return;
-                _task.InstallFinished -= onServerInstallFinished;
-                _version = minecraftVersion;
-                _build = build;
-                OnServerVersionChanged();
-            }
-            task.InstallFinished += onServerInstallFinished;
-            OnServerInstalling(task);
-            SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion);
-        }
-
-        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return _version;
         }
 
-        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -125,21 +108,10 @@ namespace WitherTorch.Core.Servers
             return result;
         }
 
-        /// <inheritdoc/>
-        public override string[] GetSoftwareVersions()
-        {
-            return SpigotAPI.Versions;
-        }
+        protected override MojangAPI.VersionInfo? BuildVersionInfo() => FindVersionInfo(_version);
 
-        protected override MojangAPI.VersionInfo? BuildVersionInfo()
-        {
-            return FindVersionInfo(_version);
-        }
+        protected override bool CreateServerCore() => true;
 
-        /// <inheritdoc/>
-        protected override bool CreateServer() => true;
-
-        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = serverInfoJson["version"]?.GetValue<string>();
@@ -162,11 +134,6 @@ namespace WitherTorch.Core.Servers
             serverInfoJson["version"] = _version;
             serverInfoJson["build"] = _build;
             return base.SaveServerCore(serverInfoJson);
-        }
-
-        public override bool UpdateServer()
-        {
-            return InstallSoftware(_version);
         }
     }
 }

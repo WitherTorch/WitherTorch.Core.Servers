@@ -3,12 +3,13 @@ using System.Diagnostics;
 
 namespace WitherTorch.Core.Servers
 {
-    public abstract class LocalServer<T> : Server<T> where T : LocalServer<T>
+    public abstract class LocalServer : Server
     {
-        private bool _isStarted;
         protected readonly SystemProcess _process;
 
-        protected LocalServer()
+        private bool _isStarted;
+
+        protected LocalServer(string serverDirectory) : base(serverDirectory)
         {
             _isStarted = false;
             SystemProcess process = new SystemProcess();
@@ -17,7 +18,7 @@ namespace WitherTorch.Core.Servers
             _process = process;
         }
 
-        /// <inheritdoc/>
+
         public override AbstractProcess GetProcess()
         {
             return _process;
