@@ -79,10 +79,10 @@ namespace WitherTorch.Core.Servers
                 targetVersion = Array.Find(versions, val => string.Equals(val.version, neoforgeVersion));
             if (targetVersion is null)
                 return null;
-            return InstallServerCore(minecraftVersion, targetVersion);
+            return GenerateInstallServerTaskCore(minecraftVersion, targetVersion);
         }
 
-        private InstallTask? InstallServerCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
+        private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
         {
             return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, task =>
             {

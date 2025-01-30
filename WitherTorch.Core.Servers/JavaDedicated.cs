@@ -50,30 +50,30 @@ namespace WitherTorch.Core.Servers
             MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
             if (versionInfo is null)
                 return null;
-            return InstallServerCore(versionInfo);
+            return GenerateInstallServerTaskCore(versionInfo);
         }
 
-        private InstallTask? InstallServerCore(MojangAPI.VersionInfo versionInfo)
+        private InstallTask? GenerateInstallServerTaskCore(MojangAPI.VersionInfo versionInfo)
         {
             string? id = versionInfo.Id;
             if (id is null || id.Length <= 0)
                 return null;
-            return new InstallTask(this, id, task =>
+            InstallTask result = new InstallTask(this, id, task =>
             {
-                void onInstallFinished(object? sender, EventArgs e)
-                {
-                    if (sender is not InstallTask senderTask || senderTask.Owner is not JavaDedicated server)
-                        return;
-                    senderTask.InstallFinished -= onInstallFinished;
-                    server._version = id;
-                    server._versionInfo = versionInfo;
-                    server.OnServerVersionChanged();
-                };
-                task.InstallFinished += onInstallFinished;
-                task.ChangeStatus(PreparingInstallStatus.Instance);
                 if (!InstallServerCore(task, versionInfo))
                     task.OnInstallFailed();
             });
+            void onInstallFinished(object? sender, EventArgs e)
+            {
+                if (sender is not InstallTask senderTask || senderTask.Owner is not JavaDedicated server)
+                    return;
+                senderTask.InstallFinished -= onInstallFinished;
+                server._version = id;
+                server._versionInfo = versionInfo;
+                server.OnServerVersionChanged();
+            };
+            result.InstallFinished += onInstallFinished;
+            return result;
         }
 
         private bool InstallServerCore(InstallTask task, MojangAPI.VersionInfo versionInfo)

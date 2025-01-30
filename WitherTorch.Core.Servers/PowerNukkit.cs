@@ -50,20 +50,21 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrWhiteSpace(fullVersionString))
                 return null;
 
-            return new InstallTask(this, version, task =>
+            InstallTask result = new InstallTask(this, version, task =>
             {
-                void onInstallFinished(object? sender, EventArgs e)
-                {
-                    if (sender is not InstallTask senderTask || senderTask.Owner is not PowerNukkit server)
-                        return;
-                    senderTask.InstallFinished -= onInstallFinished;
-                    server._version = version;
-                    server.OnServerVersionChanged();
-                };
-                task.InstallFinished += onInstallFinished;
                 if (!InstallServerCore(task, version, fullVersionString))
                     task.OnInstallFailed();
             });
+            void onInstallFinished(object? sender, EventArgs e)
+            {
+                if (sender is not InstallTask senderTask || senderTask.Owner is not PowerNukkit server)
+                    return;
+                senderTask.InstallFinished -= onInstallFinished;
+                server._version = version;
+                server.OnServerVersionChanged();
+            };
+            result.InstallFinished += onInstallFinished;
+            return result;
         }
 
         private bool InstallServerCore(InstallTask task, string version, string fullVersionString)

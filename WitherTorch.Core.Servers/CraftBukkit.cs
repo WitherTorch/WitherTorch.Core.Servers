@@ -65,25 +65,24 @@ namespace WitherTorch.Core.Servers
             int build = SpigotAPI.GetBuildNumber(version);
             if (build < 0)
                 return null;
-            return InstallServerCore(version, build);
+            return GenerateInstallServerTaskCore(version, build);
         }
 
-        private InstallTask? InstallServerCore(string minecraftVersion, int build)
+        private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, int build)
         {
-            return new InstallTask(this, minecraftVersion, task =>
+            InstallTask result = new InstallTask(this, minecraftVersion,
+                task => SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion));
+            void onServerInstallFinished(object? sender, EventArgs e)
             {
-                void onServerInstallFinished(object? sender, EventArgs e)
-                {
-                    if (sender is not InstallTask senderTask || senderTask.Owner is not CraftBukkit server)
-                        return;
-                    senderTask.InstallFinished -= onServerInstallFinished;
-                    server._version = minecraftVersion;
-                    server._build = build;
-                    server.OnServerVersionChanged();
-                }
-                task.InstallFinished += onServerInstallFinished;
-                SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion);
-            });
+                if (sender is not InstallTask senderTask || senderTask.Owner is not CraftBukkit server)
+                    return;
+                senderTask.InstallFinished -= onServerInstallFinished;
+                server._version = minecraftVersion;
+                server._build = build;
+                server.OnServerVersionChanged();
+            }
+            result.InstallFinished += onServerInstallFinished;
+            return result;
         }
 
         public override string GetReadableVersion()
