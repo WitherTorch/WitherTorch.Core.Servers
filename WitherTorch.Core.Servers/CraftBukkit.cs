@@ -23,6 +23,10 @@ namespace WitherTorch.Core.Servers
         private string _version = string.Empty;
         private int _build = -1;
 
+
+        /// <summary>
+        /// 取得伺服器的 server.properties 設定檔案
+        /// </summary>
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -37,6 +41,10 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+
+        /// <summary>
+        /// 取得伺服器的 bukkit.yml 設定檔案
+        /// </summary>
         public YamlPropertyFile BukkitYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -56,10 +64,13 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _version;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
             int build = SpigotAPI.GetBuildNumber(version);
@@ -85,11 +96,13 @@ namespace WitherTorch.Core.Servers
             return result;
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return _version;
         }
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -107,10 +120,13 @@ namespace WitherTorch.Core.Servers
             return result;
         }
 
+        /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo() => FindVersionInfo(_version);
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = serverInfoJson["version"]?.GetValue<string>();
@@ -125,9 +141,11 @@ namespace WitherTorch.Core.Servers
             return base.LoadServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override string GetServerJarPath()
             => Path.Combine(ServerDirectory, @"./craftbukkit-" + GetReadableVersion() + ".jar");
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _version;

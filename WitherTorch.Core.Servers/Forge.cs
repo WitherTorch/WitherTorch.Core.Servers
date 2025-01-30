@@ -4,19 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
-using System.Xml;
 
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Property;
-using YamlDotNet.Core.Tokens;
+
 using System.Runtime.CompilerServices;
 using System.Linq;
-using WitherTorch.Core.Software;
-using System.Threading.Tasks;
-
-#if NET6_0_OR_GREATER
-using System.Collections.Frozen;
-#endif
 
 namespace WitherTorch.Core.Servers
 {
@@ -41,6 +34,9 @@ namespace WitherTorch.Core.Servers
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
 
+        /// <summary>
+        /// 取得伺服器的 server.properties 設定檔案
+        /// </summary>
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -60,8 +56,10 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _minecraftVersion;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
         /// <summary>
@@ -69,14 +67,12 @@ namespace WitherTorch.Core.Servers
         /// </summary>
         public string ForgeVersion => _forgeVersion;
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version) => GenerateInstallServerTask(version, string.Empty);
 
-        /// <summary>
-        /// 生成一個裝載伺服器安裝流程的 <see cref="InstallTask"/> 物件
-        /// </summary>
+        /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
         /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
         /// <param name="forgeVersion">要更改的 Forge 版本</param>
-        /// <returns>如果成功裝載安裝流程，則為一個有效的 <see cref="InstallTask"/> 物件，否則會回傳 <see langword="null"/></returns>
         public InstallTask? GenerateInstallServerTask(string minecraftVersion, string forgeVersion)
         {
             ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(minecraftVersion);
@@ -89,7 +85,7 @@ namespace WitherTorch.Core.Servers
                 targetVersion = Array.Find(versions, val => string.Equals(val.version, forgeVersion));
             if (targetVersion is null)
                 return null;
-           return GenerateInstallServerTaskCore(minecraftVersion, targetVersion);
+            return GenerateInstallServerTaskCore(minecraftVersion, targetVersion);
         }
 
         private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
@@ -237,16 +233,19 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _forgeVersion);
         }
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
         }
 
+        /// <inheritdoc/>
         private IPropertyFile[] GetServerPropertyFilesCore()
         {
             string directory = ServerDirectory;
@@ -268,13 +267,16 @@ namespace WitherTorch.Core.Servers
             return versionData.versionRaw;
         }
 
+        /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_minecraftVersion);
         }
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? minecraftVersion = serverInfoJson["version"]?.GetValue<string>();
@@ -288,6 +290,7 @@ namespace WitherTorch.Core.Servers
             return base.LoadServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _minecraftVersion;
@@ -295,6 +298,7 @@ namespace WitherTorch.Core.Servers
             return base.SaveServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
         {
             string fullVersionString = GetFullVersionString();
@@ -322,23 +326,23 @@ namespace WitherTorch.Core.Servers
         private ProcessStartInfo? PrepareProcessStartInfoForArgFile(JavaRuntimeEnvironment environment, string path)
         {
 #if NET5_0_OR_GREATER
-                if (OperatingSystem.IsWindows())
+            if (OperatingSystem.IsWindows())
+            {
+                path += "/win_args.txt";
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                path += "/unix_args.txt";
+            }
+            else
+            {
+                switch (Environment.OSVersion.Platform)
                 {
-                    path += "/win_args.txt";
+                    case PlatformID.Unix:
+                        path += "/unix_args.txt";
+                        break;
                 }
-                else if (OperatingSystem.IsLinux())
-                {
-                    path += "/unix_args.txt";
-                }
-                else
-                {
-                    switch (Environment.OSVersion.Platform)
-                    {
-                        case PlatformID.Unix:
-                            path += "/unix_args.txt";
-                            break;
-                    }
-                }
+            }
 #else
             switch (Environment.OSVersion.Platform)
             {
@@ -373,6 +377,7 @@ namespace WitherTorch.Core.Servers
             yield return Path.Combine(serverDirectory, "./forge-" + fullVersionString + ".jar");
         }
 
+        /// <inheritdoc/>
         protected override string GetServerJarPath()
         {
             return GetPossibleForgePaths(GetFullVersionString())

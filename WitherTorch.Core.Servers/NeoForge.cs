@@ -7,10 +7,8 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 
-using WitherTorch.Core.Software;
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
-using System.Threading.Tasks;
 
 #if NET6_0_OR_GREATER
 using System.Collections.Frozen;
@@ -31,6 +29,9 @@ namespace WitherTorch.Core.Servers
         private string _minecraftVersion = string.Empty;
         private string _forgeVersion = string.Empty;
 
+        /// <summary>
+        /// 取得伺服器的 server.properties 設定檔案
+        /// </summary>
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -50,8 +51,10 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _minecraftVersion;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
         /// <summary>
@@ -59,14 +62,12 @@ namespace WitherTorch.Core.Servers
         /// </summary>
         public string NeoForgeVersion => _forgeVersion;
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version) => GenerateInstallServerTask(version, string.Empty);
 
-        /// <summary>
-        /// 生成一個裝載伺服器安裝流程的 <see cref="InstallTask"/> 物件
-        /// </summary>
+        /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
         /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
         /// <param name="neoforgeVersion">要更改的 NeoForge 版本</param>
-        /// <returns>如果成功裝載安裝流程，則為一個有效的 <see cref="InstallTask"/> 物件，否則會回傳 <see langword="null"/></returns>
         public InstallTask? GenerateInstallServerTask(string minecraftVersion, string neoforgeVersion)
         {
             ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(minecraftVersion);
@@ -194,11 +195,13 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _forgeVersion);
         }
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -225,13 +228,16 @@ namespace WitherTorch.Core.Servers
             return versionData.versionRaw;
         }
 
+        /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_minecraftVersion);
         }
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? minecraftVersion = serverInfoJson["version"]?.GetValue<string>();
@@ -245,6 +251,7 @@ namespace WitherTorch.Core.Servers
             return base.LoadServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _minecraftVersion;
@@ -252,6 +259,7 @@ namespace WitherTorch.Core.Servers
             return base.SaveServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
         {
             string fullVersionString = GetFullVersionString();
@@ -338,6 +346,7 @@ namespace WitherTorch.Core.Servers
             yield return Path.Combine(serverDir, "./forge-" + fullVersionString + ".jar");
         }
 
+        /// <inheritdoc/>
         protected override string GetServerJarPath()
         {
             return GetPossibleForgePaths(GetFullVersionString())

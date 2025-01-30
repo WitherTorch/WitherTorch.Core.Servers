@@ -11,6 +11,9 @@ namespace WitherTorch.Core.Servers
     {
         private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
+        /// <summary>
+        /// 取得與 <see cref="JavaDedicated"/> 相關聯的軟體上下文
+        /// </summary>
         public static ISoftwareContext Software => _software;
 
         private sealed class SoftwareContextPrivate : SoftwareContextBase<JavaDedicated>

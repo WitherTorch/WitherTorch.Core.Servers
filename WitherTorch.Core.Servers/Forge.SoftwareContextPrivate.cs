@@ -5,9 +5,11 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Xml;
 using System;
+
 using WitherTorch.Core.Servers.Utils;
+
 using System.Linq;
-using WitherTorch.Core.Software;
+
 using WitherTorch.Core.Servers.Software;
 
 namespace WitherTorch.Core.Servers
@@ -16,6 +18,9 @@ namespace WitherTorch.Core.Servers
     {
         private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
+        /// <summary>
+        /// 取得與 <see cref="Forge"/> 相關聯的軟體上下文
+        /// </summary>
         public static IForgeLikeSoftwareSoftware Software => _software;
 
         private sealed class ForgeVersionEntry

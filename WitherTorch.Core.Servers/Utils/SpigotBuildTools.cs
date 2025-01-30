@@ -12,26 +12,41 @@ using static WitherTorch.Core.Utils.WebClient2;
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>
-    /// 操作 Spigot 官方的建置工具 (BuildTools) 的類別，此類別無法被繼承
+    /// 操作 Spigot 官方的建置工具 (BuildTools) 的類別，此類別無法建立實體
     /// </summary>
     public sealed class SpigotBuildTools
     {
+        private delegate void UpdateProgressChangedEventHandler(int progress);
+
         private const string manifestListURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/api/xml";
         private const string downloadURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
         private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.SpigotBuildToolsPath));
         private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.jar"));
         private static readonly FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.version"));
-        private static readonly Lazy<SpigotBuildTools> _instLazy = new Lazy<SpigotBuildTools>(() => new SpigotBuildTools(),
-            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+
+        private static readonly SpigotBuildTools _instance = new SpigotBuildTools();
+
         private event EventHandler? UpdateStarted;
-        private event UpdateProgressEventHandler? UpdateProgressChanged;
+        private event UpdateProgressChangedEventHandler? UpdateProgressChanged;
         private event EventHandler? UpdateFinished;
 
-        public static SpigotBuildTools Instance => _instLazy.Value;
+        /// <summary>
+        /// <see cref="SpigotBuildTools"/> 的唯一實例
+        /// </summary>
+        public static SpigotBuildTools Instance => _instance;
 
+        /// <summary>
+        /// Spigot 建置工具的建置目標
+        /// </summary>
         public enum BuildTarget
         {
+            /// <summary>
+            /// CraftBukkit
+            /// </summary>
             CraftBukkit,
+            /// <summary>
+            /// Spigot
+            /// </summary>
             Spigot
         }
 
@@ -116,8 +131,13 @@ namespace WitherTorch.Core.Servers.Utils
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
             client.DownloadFileAsync(new Uri(downloadURL), buildToolFileInfo.FullName);
         }
-        public delegate void UpdateProgressEventHandler(int progress);
 
+        /// <summary>
+        /// 用指定的建置目標和 Minecraft 版本來建置伺服器軟體
+        /// </summary>
+        /// <param name="task">要紀錄建置過程的工作物件</param>
+        /// <param name="target">要建置的目標伺服器軟體</param>
+        /// <param name="version">要建置的 Minecraft 版本</param>
         public void Install(InstallTask task, BuildTarget target, string version)
         {
             InstallTask installTask = task;

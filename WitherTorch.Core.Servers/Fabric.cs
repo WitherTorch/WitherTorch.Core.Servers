@@ -23,6 +23,9 @@ namespace WitherTorch.Core.Servers
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
 
+        /// <summary>
+        /// 取得伺服器的 server.properties 設定檔案
+        /// </summary>
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -42,19 +45,18 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _minecraftVersion;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version) => GenerateInstallServerTask(version, string.Empty);
 
-        /// <summary>
-        /// 生成一個裝載伺服器安裝流程的 <see cref="InstallTask"/> 物件
-        /// </summary>
+        /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
         /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
         /// <param name="fabricLoaderVersion">要更改的 Fabric Loader 版本</param>
-        /// <remarks>(安裝過程一般為非同步執行，伺服器軟體會呼叫 <see cref="InstallTask"/> 內的各項事件以更新目前的安裝狀態)</remarks>
-        /// <returns>如果成功裝載安裝流程，則為一個有效的 <see cref="InstallTask"/> 物件，否則會回傳 <see langword="null"/></returns>
         public InstallTask? GenerateInstallServerTask(string minecraftVersion, string fabricLoaderVersion)
         {
             if (string.IsNullOrWhiteSpace(minecraftVersion))
@@ -65,8 +67,8 @@ namespace WitherTorch.Core.Servers
                 if (string.IsNullOrWhiteSpace(fabricLoaderVersion))
                     return null;
             }
-            InstallTask result = new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion, 
-                task =>FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion));
+            InstallTask result = new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion,
+                task => FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion));
             void onInstallFinished(object? sender, EventArgs e)
             {
                 if (sender is not InstallTask senderTask || senderTask.Owner is not Fabric server)
@@ -81,6 +83,7 @@ namespace WitherTorch.Core.Servers
             return result;
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return SoftwareUtils.GetReadableVersionString(_minecraftVersion, _fabricLoaderVersion);
@@ -91,11 +94,13 @@ namespace WitherTorch.Core.Servers
         /// </summary>
         public string FabricLoaderVersion => _fabricLoaderVersion;
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
         }
 
+        /// <inheritdoc/>
         private IPropertyFile[] GetServerPropertyFilesCore()
         {
             string directory = ServerDirectory;
@@ -105,13 +110,16 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_minecraftVersion);
         }
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? minecraftVersion = serverInfoJson["version"]?.ToString();
@@ -125,6 +133,7 @@ namespace WitherTorch.Core.Servers
             return base.LoadServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _minecraftVersion;
@@ -132,6 +141,7 @@ namespace WitherTorch.Core.Servers
             return base.SaveServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override string GetServerJarPath()
             => Path.Combine(ServerDirectory, "./fabric-server-launch.jar");
     }

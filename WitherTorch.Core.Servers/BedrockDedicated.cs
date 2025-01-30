@@ -20,7 +20,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Bedrock 原版伺服器
     /// </summary>
-    public sealed partial class BedrockDedicated : LocalServer
+    public sealed partial class BedrockDedicated : LocalServerBase
     {
         private const string DownloadURLForLinux = "https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-{0}.zip";
         private const string DownloadURLForWindows = "https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-{0}.zip";
@@ -30,10 +30,13 @@ namespace WitherTorch.Core.Servers
 
         private BedrockDedicated(string serverDirectory) : base(serverDirectory) { }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _version;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
             if (string.IsNullOrWhiteSpace(version))
@@ -44,7 +47,7 @@ namespace WitherTorch.Core.Servers
                 version = versions[0];
                 if (string.IsNullOrWhiteSpace(version))
                     return null;
-            } 
+            }
 
             string? downloadURL = null;
 #if NET5_0_OR_GREATER
@@ -75,7 +78,7 @@ namespace WitherTorch.Core.Servers
         private InstallTask? InstallSoftware(string version, string? downloadUrl)
         {
             if (string.IsNullOrEmpty(downloadUrl))
-                return null; 
+                return null;
 
             return new InstallTask(this, version, task =>
             {
@@ -183,21 +186,25 @@ namespace WitherTorch.Core.Servers
             GC.Collect(1, GCCollectionMode.Optimized, false, false);
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return _version;
         }
 
+        /// <inheritdoc/>
         public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
             return null;
         }
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return Array.Empty<IPropertyFile>();
         }
 
+        /// <inheritdoc/>
         protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
         {
             string serverDirectory = ServerDirectory;
@@ -214,6 +221,7 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         protected override void StopServerCore(SystemProcess process, bool force)
         {
             if (force)
@@ -224,14 +232,18 @@ namespace WitherTorch.Core.Servers
             process.InputCommand("stop");
         }
 
+        /// <inheritdoc/>
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
         }
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateUpdateServerTask() => GenerateInstallServerTask(string.Empty);
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = serverInfoJson["version"]?.ToString();
@@ -241,6 +253,7 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _version;

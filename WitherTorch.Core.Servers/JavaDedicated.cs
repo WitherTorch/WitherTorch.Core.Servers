@@ -22,6 +22,9 @@ namespace WitherTorch.Core.Servers
 
         private string _version = string.Empty;
 
+        /// <summary>
+        /// 取得伺服器的 server.properties 設定檔案
+        /// </summary>
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -36,8 +39,10 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _version;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
         private JavaDedicated(string serverDirectory) : base(serverDirectory)
@@ -45,6 +50,7 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
             MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
@@ -53,6 +59,7 @@ namespace WitherTorch.Core.Servers
             return GenerateInstallServerTaskCore(versionInfo);
         }
 
+        /// <inheritdoc/>
         private InstallTask? GenerateInstallServerTaskCore(MojangAPI.VersionInfo versionInfo)
         {
             string? id = versionInfo.Id;
@@ -76,6 +83,7 @@ namespace WitherTorch.Core.Servers
             return result;
         }
 
+        /// <inheritdoc/>
         private bool InstallServerCore(InstallTask task, MojangAPI.VersionInfo versionInfo)
         {
             string? manifestURL = versionInfo.ManifestURL;
@@ -103,10 +111,13 @@ namespace WitherTorch.Core.Servers
                 hash: sha1, hashMethod: HashHelper.HashMethod.SHA1).HasValue;
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion() => _version;
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles() => propertyFilesLazy.Value;
 
+        /// <inheritdoc/>
         private IPropertyFile[] GetServerPropertyFilesCore()
         {
             string directory = ServerDirectory;
@@ -116,10 +127,13 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo() => FindVersionInfo(_version);
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = (serverInfoJson["version"] as JsonValue)?.GetValue<string>();
@@ -129,12 +143,14 @@ namespace WitherTorch.Core.Servers
             return base.LoadServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _version;
             return base.SaveServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override string GetServerJarPath()
             => Path.Combine(ServerDirectory, @"./minecraft_server." + GetReadableVersion() + ".jar");
     }

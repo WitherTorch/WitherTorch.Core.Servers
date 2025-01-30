@@ -1,10 +1,10 @@
-﻿using System.Threading;
-using System;
-using WitherTorch.Core.Software;
-using WitherTorch.Core.Servers.Utils;
+﻿using System;
 using System.Collections.Generic;
-using System.Text.Json.Nodes;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
+
+using WitherTorch.Core.Software;
 
 namespace WitherTorch.Core.Servers
 {
@@ -12,6 +12,9 @@ namespace WitherTorch.Core.Servers
     {
         private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
+        /// <summary>
+        /// 取得與 <see cref="Paper"/> 相關聯的軟體上下文
+        /// </summary>
         public static ISoftwareContext Software => _software;
 
         private sealed class SoftwareContextPrivate : SoftwareContextBase<Paper>

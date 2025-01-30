@@ -10,11 +10,19 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// 此類別為 Java 版伺服器軟體之基底類別，無法直接使用
     /// </summary>
-    public abstract partial class JavaEditionServerBase : LocalServer
+    public abstract partial class JavaEditionServerBase : LocalServerBase
     {
+        /// <summary>
+        /// Java 版伺服器的版本資料
+        /// </summary>
         protected MojangAPI.VersionInfo? _versionInfo;
+
         private JavaRuntimeEnvironment? _environment;
 
+        /// <summary>
+        /// <see cref="JavaEditionServerBase"/> 的建構子
+        /// </summary>
+        /// <param name="serverDirectory">伺服器資料夾路徑</param>
         protected JavaEditionServerBase(string serverDirectory) : base(serverDirectory) { }
 
         /// <summary>
@@ -34,6 +42,11 @@ namespace WitherTorch.Core.Servers
             return mojangVersionInfo;
         }
 
+        /// <summary>
+        /// 取得與指定的版本號相對應的版本資料
+        /// </summary>
+        /// <param name="version">要查找的版本號</param>
+        /// <returns></returns>
         protected static MojangAPI.VersionInfo? FindVersionInfo(string version)
         {
             if (MojangAPI.VersionDictionary.TryGetValue(version, out MojangAPI.VersionInfo? result))
@@ -41,6 +54,7 @@ namespace WitherTorch.Core.Servers
             return null;
         }
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
@@ -53,6 +67,7 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             JavaRuntimeEnvironment? environment = _environment;
@@ -71,7 +86,7 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-
+        /// <inheritdoc/>
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment javaRuntimeEnvironment)
@@ -80,12 +95,13 @@ namespace WitherTorch.Core.Servers
                 _environment = null;
         }
 
-
+        /// <inheritdoc/>
         public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
             return _environment;
         }
 
+        /// <inheritdoc/>
         protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment currentEnv)
@@ -93,6 +109,7 @@ namespace WitherTorch.Core.Servers
             return PrepareProcessStartInfoCore(RuntimeEnvironment.JavaDefault);
         }
 
+        /// <inheritdoc cref="PrepareProcessStartInfo(RuntimeEnvironment?)"/>
         protected virtual ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
         {
             string jarPath = GetServerJarPath();
@@ -114,8 +131,13 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <summary>
+        /// 取得伺服器的 JAR 程式檔案路徑
+        /// </summary>
+        /// <returns></returns>
         protected abstract string GetServerJarPath();
 
+        /// <inheritdoc/>
         protected override void StopServerCore(SystemProcess process, bool force)
         {
             if (force)
@@ -126,10 +148,20 @@ namespace WitherTorch.Core.Servers
             process.InputCommand("stop");
         }
 
+        /// <summary>
+        /// Java 版伺服器軟體的上下文基底類別
+        /// </summary>
+        /// <typeparam name="T">與此類別相關聯的伺服器類型</typeparam>
+        /// <remarks>此基底類別的 <see cref="TryInitialize"/> 會自動呼叫 <see cref="MojangAPI.Initialize"/> 來初始化 Minecraft 版本列表，子類別無須二次呼叫</remarks>
         protected abstract class SoftwareContextBase<T> : Core.Software.SoftwareContextBase<T> where T : JavaEditionServerBase
         {
-            public SoftwareContextBase(string softwareId) : base(softwareId) { }
+            /// <summary>
+            /// <see cref="SoftwareContextBase{T}"/> 的建構子
+            /// </summary>
+            /// <param name="softwareId">軟體的唯一辨識符 (ID)</param>
+            protected SoftwareContextBase(string softwareId) : base(softwareId) { }
 
+            /// <inheritdoc/>
             public override bool TryInitialize()
             {
                 MojangAPI.Initialize(); //呼叫 Mojang API 進行版本列表提取

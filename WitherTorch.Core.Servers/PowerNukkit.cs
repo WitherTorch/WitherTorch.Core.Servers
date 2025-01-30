@@ -3,14 +3,16 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
 {
-    public sealed partial class PowerNukkit : LocalServer
+    /// <summary>
+    /// PowerNukkit 伺服器
+    /// </summary>
+    public sealed partial class PowerNukkit : LocalServerBase
     {
         private const string DownloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
         private const string SoftwareId = "powerNukkit";
@@ -19,6 +21,9 @@ namespace WitherTorch.Core.Servers
         private string _version = string.Empty;
         private JavaRuntimeEnvironment? _environment;
 
+        /// <summary>
+        /// 取得伺服器的 nukkit.yml 設定檔案
+        /// </summary>
         public YamlPropertyFile NukkitYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -33,8 +38,10 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _version;
-
+        
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
         private PowerNukkit(string serverDirectory) : base(serverDirectory)
@@ -42,6 +49,7 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
             if (string.IsNullOrWhiteSpace(version))
@@ -74,16 +82,19 @@ namespace WitherTorch.Core.Servers
                 filename: Path.Combine(ServerDirectory, @"powernukkit-" + version + ".jar")).HasValue;
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return _version;
         }
 
+        /// <inheritdoc/>
         public override RuntimeEnvironment? GetRuntimeEnvironment()
         {
             return _environment;
         }
 
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -98,6 +109,7 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment currentEnv)
@@ -127,6 +139,7 @@ namespace WitherTorch.Core.Servers
             };
         }
 
+        /// <inheritdoc/>
         protected override void StopServerCore(SystemProcess process, bool force)
         {
             if (force)
@@ -137,6 +150,7 @@ namespace WitherTorch.Core.Servers
             process.InputCommand("stop");
         }
 
+        /// <inheritdoc/>
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
             if (environment is JavaRuntimeEnvironment runtimeEnvironment)
@@ -149,8 +163,10 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = serverInfoJson["version"]?.GetValue<string>();
@@ -167,6 +183,7 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _version;

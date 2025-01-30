@@ -5,7 +5,6 @@ using System.Xml;
 
 using WitherTorch.Core.Servers.Software;
 using WitherTorch.Core.Servers.Utils;
-using WitherTorch.Core.Software;
 
 
 #if NET6_0_OR_GREATER
@@ -18,6 +17,9 @@ namespace WitherTorch.Core.Servers
     {
         private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
 
+        /// <summary>
+        /// 取得與 <see cref="NeoForge"/> 相關聯的軟體上下文
+        /// </summary>
         public static IForgeLikeSoftwareSoftware Software => _software;
 
         private sealed class ForgeVersionEntry

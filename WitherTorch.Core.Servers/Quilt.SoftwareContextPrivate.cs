@@ -5,11 +5,19 @@ using WitherTorch.Core.Servers.Utils;
 using System.Collections.Generic;
 using System.Text.Json;
 using WitherTorch.Core.Servers.Software;
+using WitherTorch.Core.Software;
 
 namespace WitherTorch.Core.Servers
 {
     partial class Quilt
     {
+        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+
+        /// <summary>
+        /// 取得與 <see cref="Quilt"/> 相關聯的軟體上下文
+        /// </summary>
+        public static IFabricLikeSoftwareSoftware Software => _software;
+
         private sealed class SoftwareContextPrivate : SoftwareContextBase<Quilt>, IFabricLikeSoftwareSoftware
         {
             private const string ManifestListURL = "https://meta.quiltmc.org/v3/versions/game";

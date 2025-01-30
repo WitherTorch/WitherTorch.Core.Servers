@@ -1,15 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
-using System.Threading.Tasks;
 
-using WitherTorch.Core.Software;
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
@@ -33,6 +29,9 @@ namespace WitherTorch.Core.Servers
         private string _version = string.Empty;
         private int _build = -1;
 
+        /// <summary>
+        /// 取得伺服器的 server.properties 設定檔案
+        /// </summary>
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -47,6 +46,9 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+        /// <summary>
+        /// 取得伺服器的 bukkit.yml 設定檔案
+        /// </summary>
         public YamlPropertyFile BukkitYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -61,6 +63,9 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+        /// <summary>
+        /// 取得伺服器的 spigot.yml 設定檔案
+        /// </summary>
         public YamlPropertyFile SpigotYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -75,6 +80,9 @@ namespace WitherTorch.Core.Servers
             }
         }
 
+        /// <summary>
+        /// 取得伺服器的 paper.yml 設定檔案
+        /// </summary>
         public YamlPropertyFile PaperYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -94,10 +102,13 @@ namespace WitherTorch.Core.Servers
             propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
+        /// <inheritdoc/>
         public override string ServerVersion => _version;
 
+        /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
+        /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
             MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
@@ -178,12 +189,13 @@ namespace WitherTorch.Core.Servers
             return false;
         }
 
+        /// <inheritdoc/>
         public override string GetReadableVersion()
         {
             return _version;
         }
 
-
+        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -238,13 +250,16 @@ namespace WitherTorch.Core.Servers
             return new YamlPropertyFile(paperConfigPath);
         }
 
+        /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
             return FindVersionInfo(_version);
         }
 
+        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
+        /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
             string? version = serverInfoJson["version"]?.ToString();
@@ -259,6 +274,7 @@ namespace WitherTorch.Core.Servers
             return base.LoadServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
             serverInfoJson["version"] = _version;
@@ -266,6 +282,7 @@ namespace WitherTorch.Core.Servers
             return base.SaveServerCore(serverInfoJson);
         }
 
+        /// <inheritdoc/>
         protected override string GetServerJarPath()
             => Path.Combine(ServerDirectory, "./paper-" + GetReadableVersion() + ".jar");
     }

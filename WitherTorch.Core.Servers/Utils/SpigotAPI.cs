@@ -11,7 +11,7 @@ using System.Collections.Frozen;
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>
-    /// 提供與 SpigotMC 相關的公用API，此類別是靜態類別
+    /// 提供與 SpigotMC 相關的公用 API，此類別是靜態類別
     /// </summary>
     public static class SpigotAPI
     {
@@ -22,13 +22,16 @@ namespace WitherTorch.Core.Servers.Utils
         private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
             () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse()),
             LazyThreadSafetyMode.ExecutionAndPublication);
-        public static IReadOnlyDictionary<string, string> VersionDictionary => _versionDictLazy.Value;
-        public static string[] Versions => _versionsLazy.Value;
 
-        public static void Initialize()
-        {
-            var _ = _versionsLazy.Value;
-        }
+        /// <summary>
+        /// 取得 SpigotMC 的版本資料庫
+        /// </summary>
+        public static IReadOnlyDictionary<string, string> VersionDictionary => _versionDictLazy.Value;
+
+        /// <summary>
+        /// 取得 SpigotMC 的版本列表
+        /// </summary>
+        public static string[] Versions => _versionsLazy.Value;
 
         private static IReadOnlyDictionary<string, string> LoadVersionDictionary()
         {
@@ -81,6 +84,11 @@ namespace WitherTorch.Core.Servers.Utils
 #endif
         }
 
+        /// <summary>
+        /// 取得與指定的 Minecraft 版本相關聯的 Spigot 組建編號
+        /// </summary>
+        /// <param name="version">要查詢的 Minecraft 版本</param>
+        /// <returns></returns>
         public static int GetBuildNumber(string version)
         {
             if (!VersionDictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)

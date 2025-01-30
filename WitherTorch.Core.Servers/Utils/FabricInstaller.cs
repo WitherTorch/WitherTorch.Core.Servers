@@ -12,22 +12,28 @@ using static WitherTorch.Core.Utils.WebClient2;
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>
-    /// 操作 Fabric 官方的安裝工具 (Fabric Installer) 的類別，此類別無法被繼承
+    /// 操作 Fabric 官方的安裝工具 (Fabric Installer) 的類別，此類別無法建立實體
     /// </summary>
     public sealed class FabricInstaller
     {
+        private delegate void UpdateProgressChangedEventHandler(int progress);
+
         private const string manifestListURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml";
         private const string downloadURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{0}/fabric-installer-{0}.jar";
+
         private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
         private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.jar"));
         private static readonly FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.version"));
-        private static readonly Lazy<FabricInstaller> _instLazy = new Lazy<FabricInstaller>(() => new FabricInstaller(),
-            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly FabricInstaller _instance = new FabricInstaller();
+
         private event EventHandler? UpdateStarted;
-        private event UpdateProgressEventHandler? UpdateProgressChanged;
+        private event UpdateProgressChangedEventHandler? UpdateProgressChanged;
         private event EventHandler? UpdateFinished;
 
-        public static FabricInstaller Instance => _instLazy.Value;
+        /// <summary>
+        /// <see cref="FabricInstaller"/> 的唯一實例
+        /// </summary>
+        public static FabricInstaller Instance => _instance;
 
         private static bool CheckUpdate(out string? updatedVersion)
         {
@@ -105,8 +111,13 @@ namespace WitherTorch.Core.Servers.Utils
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
             client.DownloadFileAsync(new Uri(string.Format(downloadURL, version)), buildToolFileInfo.FullName);
         }
-        public delegate void UpdateProgressEventHandler(int progress);
 
+        /// <summary>
+        /// 用指定的 Minecraft 版本和 Fabric Loader 版本來安裝伺服器軟體
+        /// </summary>
+        /// <param name="task">要紀錄安裝過程的工作物件</param>
+        /// <param name="minecraftVersion">要安裝的 Minecraft 版本</param>
+        /// <param name="fabricLoaderVersion">要安裝的 Fabric Loader 版本</param>
         public void Install(InstallTask task, string minecraftVersion, string fabricLoaderVersion)
         {
             InstallTask installTask = task;
