@@ -82,7 +82,7 @@ namespace WitherTorch.Core.Servers
         private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, int build)
         {
             InstallTask result = new InstallTask(this, minecraftVersion,
-                task => SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion));
+                (task, token) => SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion));
             void onServerInstallFinished(object? sender, EventArgs e)
             {
                 if (sender is not InstallTask senderTask || senderTask.Owner is not CraftBukkit server)

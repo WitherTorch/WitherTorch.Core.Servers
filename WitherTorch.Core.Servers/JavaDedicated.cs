@@ -9,6 +9,8 @@ using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
+using YamlDotNet.Core.Tokens;
+
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
@@ -65,9 +67,9 @@ namespace WitherTorch.Core.Servers
             string? id = versionInfo.Id;
             if (id is null || id.Length <= 0)
                 return null;
-            InstallTask result = new InstallTask(this, id, task =>
+            InstallTask result = new InstallTask(this, id, async (task, token) =>
             {
-                if (!InstallServerCore(task, versionInfo))
+                if (!await InstallServerCore(task, versionInfo, token))
                     task.OnInstallFailed();
             });
             void onInstallFinished(object? sender, EventArgs e)
@@ -78,20 +80,26 @@ namespace WitherTorch.Core.Servers
                 server._version = id;
                 server._versionInfo = versionInfo;
                 server.OnServerVersionChanged();
-            };
+            }
             result.InstallFinished += onInstallFinished;
             return result;
         }
 
         /// <inheritdoc/>
-        private bool InstallServerCore(InstallTask task, MojangAPI.VersionInfo versionInfo)
+        private async Task<bool> InstallServerCore(InstallTask task, MojangAPI.VersionInfo versionInfo, CancellationToken token)
         {
             string? manifestURL = versionInfo.ManifestURL;
             if (manifestURL is null || manifestURL.Length <= 0)
                 return false;
             WebClient2 client = new WebClient2();
             InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
-            JsonObject? jsonObject = JsonNode.Parse(client.GetStringAsync(manifestURL).Result) as JsonObject;
+#if NET8_0_OR_GREATER
+            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
+#else
+            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
+            if (token.IsCancellationRequested)
+                return false;
+#endif
             if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out JsonNode? node))
                 return false;
             jsonObject = node as JsonObject;

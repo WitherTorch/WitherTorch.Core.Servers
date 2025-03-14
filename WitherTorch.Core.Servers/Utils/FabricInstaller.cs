@@ -188,14 +188,8 @@ namespace WitherTorch.Core.Servers.Utils
             innerProcess.EnableRaisingEvents = true;
             innerProcess.BeginOutputReadLine();
             innerProcess.BeginErrorReadLine();
-            innerProcess.OutputDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
-            innerProcess.ErrorDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
+            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
+            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
                 installTask.OnInstallFinished();

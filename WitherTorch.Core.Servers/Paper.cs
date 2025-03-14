@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
@@ -122,14 +123,14 @@ namespace WitherTorch.Core.Servers
             string? id = info.Id;
             if (id is null || id.Length <= 0)
                 return null;
-            return new InstallTask(this, id, task =>
+            return new InstallTask(this, id, async (task, token) =>
             {
-                if (!InstallServerCore(task, info))
+                if (!await InstallServerCore(task, info, token))
                     task.OnInstallFailed();
             });
         }
 
-        private bool InstallServerCore(InstallTask task, MojangAPI.VersionInfo info)
+        private async Task<bool> InstallServerCore(InstallTask task, MojangAPI.VersionInfo info, CancellationToken token)
         {
             string? version = info.Id;
             if (version is null || version.Length <= 0)
@@ -139,7 +140,13 @@ namespace WitherTorch.Core.Servers
                 return false;
             WebClient2 client = new WebClient2();
             InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
-            JsonObject? jsonObject = JsonNode.Parse(client.GetStringAsync(manifestURL).Result) as JsonObject;
+#if NET8_0_OR_GREATER
+            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
+#else
+            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
+            if (token.IsCancellationRequested)
+                return false;
+#endif
             if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("builds", out JsonNode? node))
                 return false;
             JsonArray? jsonArray = node as JsonArray;
@@ -149,7 +156,14 @@ namespace WitherTorch.Core.Servers
             if (node is null || !(node is JsonValue _value && _value.GetValueKind() == JsonValueKind.Number))
                 return false;
             int build = _value.GetValue<int>();
-            jsonObject = JsonNode.Parse(client.GetStringAsync(string.Format(BuildVersionManifestListURL2, version, build.ToString())).Result) as JsonObject;
+            manifestURL = string.Format(BuildVersionManifestListURL2, version, build.ToString());
+#if NET8_0_OR_GREATER
+            jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
+#else
+            jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
+            if (token.IsCancellationRequested)
+                return false;
+#endif
             if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out node))
                 return false;
             jsonObject = node as JsonObject;

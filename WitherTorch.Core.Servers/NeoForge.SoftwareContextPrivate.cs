@@ -5,11 +5,7 @@ using System.Xml;
 
 using WitherTorch.Core.Servers.Software;
 using WitherTorch.Core.Servers.Utils;
-
-
-#if NET6_0_OR_GREATER
-using System.Collections.Frozen;
-#endif
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -116,11 +112,7 @@ namespace WitherTorch.Core.Servers
                     result.Add(item.Key, values);
                 }
 
-#if NET6_0_OR_GREATER
-            return FrozenDictionary.ToFrozenDictionary(result);
-#else
-                return result;
-#endif
+                return result.AsReadOnlyDictionary();
             }
 
             private static void LoadLegacyVersionData(Dictionary<string, List<ForgeVersionEntry>> dict)

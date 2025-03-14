@@ -58,7 +58,7 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrWhiteSpace(fullVersionString))
                 return null;
 
-            InstallTask result = new InstallTask(this, version, task =>
+            InstallTask result = new InstallTask(this, version, (task, token) =>
             {
                 if (!InstallServerCore(task, version, fullVersionString))
                     task.OnInstallFailed();

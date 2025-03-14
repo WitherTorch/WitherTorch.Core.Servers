@@ -6,8 +6,9 @@ using System.Xml;
 
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Software;
+using WitherTorch.Core.Utils;
 
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
 using System.Collections.Frozen;
 #endif
 
@@ -78,11 +79,8 @@ namespace WitherTorch.Core.Servers
                         version = rawVersion;
                     result[version] = rawVersion;
                 }
-#if NET6_0_OR_GREATER
-                return result.ToFrozenDictionary();
-#else
-                return result;
-#endif
+
+                return result.AsReadOnlyDictionary();
             }
 
             private string[] GetVersionKeys()

@@ -10,10 +10,6 @@ using System.Threading;
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 
-#if NET6_0_OR_GREATER
-using System.Collections.Frozen;
-#endif
-
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
@@ -85,7 +81,7 @@ namespace WitherTorch.Core.Servers
 
         private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
         {
-            return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, task =>
+            return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, (task, token) =>
             {
                 if (!InstallServerCore(task, minecraftVersion, selectedVersion))
                     task.OnInstallFailed();
@@ -111,26 +107,25 @@ namespace WitherTorch.Core.Servers
             int? id = FileDownloadHelper.AddTask(task: task,
                 downloadUrl: downloadURL, filename: installerLocation,
                 percentageMultiplier: 0.5);
-            if (id.HasValue)
+            if (!id.HasValue)
+                return false;
+            void AfterDownload(object? sender, int sendingId)
             {
-                void AfterDownload(object? sender, int sendingId)
+                if (sendingId != id.Value)
+                    return;
+                FileDownloadHelper.TaskFinished -= AfterDownload;
+                try
                 {
-                    if (sendingId != id.Value)
-                        return;
-                    FileDownloadHelper.TaskFinished -= AfterDownload;
-                    try
-                    {
-                        RunInstaller(task, installerLocation, minecraftVersion, version);
-                    }
-                    catch (Exception)
-                    {
-                        task.OnInstallFailed();
-                    }
-                };
-                FileDownloadHelper.TaskFinished += AfterDownload;
-                return true;
+                    RunInstaller(task, installerLocation, minecraftVersion, version);
+                }
+                catch (Exception)
+                {
+                    task.OnInstallFailed();
+                }
             }
-            return false;
+            ;
+            FileDownloadHelper.TaskFinished += AfterDownload;
+            return true;
         }
 
         private void RunInstaller(InstallTask task, string jarPath, string minecraftVersion, string forgeVersion)
@@ -174,14 +169,8 @@ namespace WitherTorch.Core.Servers
             innerProcess.EnableRaisingEvents = true;
             innerProcess.BeginOutputReadLine();
             innerProcess.BeginErrorReadLine();
-            innerProcess.OutputDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
-            innerProcess.ErrorDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
+            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
+            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
                 task.StopRequested -= StopRequestedHandler;

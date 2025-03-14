@@ -58,14 +58,12 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 if (buildToolVersionInfo.Exists && buildToolFileInfo.Exists)
                 {
-                    using (StreamReader reader = buildToolVersionInfo.OpenText())
+                    using StreamReader reader = buildToolVersionInfo.OpenText();
+                    string? versionText;
+                    do
                     {
-                        string? versionText;
-                        do
-                        {
-                            versionText = reader.ReadLine();
-                        } while (!int.TryParse(versionText, out version));
-                    }
+                        versionText = reader.ReadLine();
+                    } while (!int.TryParse(versionText, out version));
                 }
             }
             else
@@ -220,14 +218,8 @@ namespace WitherTorch.Core.Servers.Utils
                 installTask.StopRequested -= StopRequestedHandler;
             };
             installTask.StopRequested += StopRequestedHandler;
-            innerProcess.OutputDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
-            innerProcess.ErrorDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
+            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
+            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
                 installTask.StopRequested -= StopRequestedHandler;

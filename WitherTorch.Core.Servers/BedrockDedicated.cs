@@ -80,7 +80,7 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrEmpty(downloadUrl))
                 return null;
 
-            return new InstallTask(this, version, task =>
+            return new InstallTask(this, version, (task, token) =>
             {
                 WebClient2 client = new WebClient2();
                 InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);

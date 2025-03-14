@@ -4,8 +4,9 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using WitherTorch.Core.Utils;
 
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
 using System.Collections.Frozen;
 #endif
 
@@ -159,11 +160,8 @@ namespace WitherTorch.Core.Servers.Utils
                     continue;
                 result.Add(id, versionInfo);
             }
-#if NET6_0_OR_GREATER
-            return FrozenDictionary.ToFrozenDictionary(result);
-#else
-            return result;
-#endif
+
+            return result.AsReadOnlyDictionary();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

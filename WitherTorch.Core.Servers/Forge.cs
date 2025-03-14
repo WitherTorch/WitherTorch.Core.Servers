@@ -90,7 +90,7 @@ namespace WitherTorch.Core.Servers
 
         private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
         {
-            return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, task =>
+            return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, (task, token) =>
             {
                 if (!InstallServerCore(task, minecraftVersion, selectedVersion))
                     task.OnInstallFailed();
@@ -213,14 +213,8 @@ namespace WitherTorch.Core.Servers
             innerProcess.EnableRaisingEvents = true;
             innerProcess.BeginOutputReadLine();
             innerProcess.BeginErrorReadLine();
-            innerProcess.OutputDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
-            innerProcess.ErrorDataReceived += (sender, e) =>
-            {
-                installStatus.OnProcessMessageReceived(sender, e);
-            };
+            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
+            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
                 task.StopRequested -= StopRequestedHandler;

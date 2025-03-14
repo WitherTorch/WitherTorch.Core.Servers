@@ -2,9 +2,12 @@
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 
-#if NET6_0_OR_GREATER
+using WitherTorch.Core.Utils;
+
+#if NET8_0_OR_GREATER
 using System.Collections.Frozen;
 #endif
 
@@ -77,11 +80,7 @@ namespace WitherTorch.Core.Servers.Utils
                 result.Add(version, versionString);
             }
 
-#if NET6_0_OR_GREATER
-            return result.ToFrozenDictionary();
-#else
-            return result;
-#endif
+            return result.AsReadOnlyDictionary();
         }
 
         /// <summary>
@@ -95,7 +94,7 @@ namespace WitherTorch.Core.Servers.Utils
                 return -1;
             try
             {
-                return GetBuildNumberInternal(string.Format(manifestListURL2, result));
+                return GetBuildNumberCoreAsync(string.Format(manifestListURL2, result), CancellationToken.None).Result;
             }
             catch (Exception)
             {
@@ -103,13 +102,38 @@ namespace WitherTorch.Core.Servers.Utils
             return -1;
         }
 
-        private static int GetBuildNumberInternal(string url)
+        /// <inheritdoc cref="GetBuildNumber(string)"/>
+        public static Task<int> GetBuildNumberAsync(string version)
+            => GetBuildNumberAsync(version, CancellationToken.None);
+
+        /// <inheritdoc cref="GetBuildNumber(string)"/>
+        public static async Task<int> GetBuildNumberAsync(string version, CancellationToken token)
+        {
+            if (!VersionDictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
+                return -1;
+            try
+            {
+                return await GetBuildNumberCoreAsync(string.Format(manifestListURL2, result), token);
+            }
+            catch (Exception)
+            {
+            }
+            return -1;
+        }
+
+        private static async Task<int> GetBuildNumberCoreAsync(string url, CancellationToken token)
         {
             string manifestString;
             using (HttpClient client = new HttpClient())
             {
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-                manifestString = client.GetStringAsync(url).Result;
+#if NET8_0_OR_GREATER
+                manifestString = await client.GetStringAsync(url, token);
+#else
+                manifestString = await client.GetStringAsync(url);
+                if (token.IsCancellationRequested)
+                    return -1;
+#endif
             }
             if (string.IsNullOrEmpty(manifestString))
                 return -1;

@@ -68,7 +68,7 @@ namespace WitherTorch.Core.Servers
                     return null;
             }
             InstallTask result = new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion,
-                task => FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion));
+                (task, token) => FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion));
             void onInstallFinished(object? sender, EventArgs e)
             {
                 if (sender is not InstallTask senderTask || senderTask.Owner is not Fabric server)

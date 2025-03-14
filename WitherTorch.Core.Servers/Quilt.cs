@@ -67,7 +67,7 @@ namespace WitherTorch.Core.Servers
                     return null;
             }
             InstallTask result = new InstallTask(this, minecraftVersion + "-" + quiltLoaderVersion,
-                task => QuiltInstaller.Instance.Install(task, minecraftVersion, quiltLoaderVersion));
+                (task, token) => QuiltInstaller.Instance.Install(task, minecraftVersion, quiltLoaderVersion));
             void onInstallFinished(object? sender, EventArgs e)
             {
                 if (sender is not InstallTask senderTask || senderTask.Owner is not Quilt server)

@@ -1,4 +1,4 @@
-﻿#if NET6_0_OR_GREATER
+﻿#if NET8_0_OR_GREATER
 using System.Collections.Frozen;
 #endif
 
@@ -11,6 +11,7 @@ using WitherTorch.Core.Servers.Utils;
 using System.Linq;
 
 using WitherTorch.Core.Servers.Software;
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -138,11 +139,7 @@ namespace WitherTorch.Core.Servers
                     result.Add(pair.Key, pair.Value.ToArray());
                 }
 
-#if NET6_0_OR_GREATER
-            return FrozenDictionary.ToFrozenDictionary(result);
-#else
                 return result;
-#endif
             }
         }
     }
