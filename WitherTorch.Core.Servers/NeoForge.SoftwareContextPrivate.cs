@@ -117,7 +117,7 @@ namespace WitherTorch.Core.Servers
 
             private static void LoadLegacyVersionData(Dictionary<string, List<ForgeVersionEntry>> dict)
             {
-                string? manifestString = CachedDownloadClient.Instance.DownloadString(ManifestListURL);
+                string? manifestString = CachedDownloadClient.Instance.DownloadString(LegacyManifestListURL);
                 if (string.IsNullOrEmpty(manifestString))
                     return;
                 XmlDocument manifestXML = new XmlDocument();
@@ -178,7 +178,12 @@ namespace WitherTorch.Core.Servers
                     if (versionSplits.Length < 1)
                         continue;
                     string version = versionSplits[0];
-                    string mcVersion = "1." + version.Substring(0, version.LastIndexOf('.'));
+                    string mcVersion = version.Substring(0, version.LastIndexOf('.'));
+                    if (mcVersion.StartsWith("0."))
+                        continue;
+                    if (mcVersion.EndsWith(".0"))
+                        mcVersion = mcVersion.Substring(0, mcVersion.Length - 2);
+                    mcVersion = "1." + mcVersion;
                     if (!dict.TryGetValue(mcVersion, out List<ForgeVersionEntry>? historyVersionList))
                         dict.Add(mcVersion, historyVersionList = new List<ForgeVersionEntry>());
                     historyVersionList.Add(new ForgeVersionEntry(version, versionString));
