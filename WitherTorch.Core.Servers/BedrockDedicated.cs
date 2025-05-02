@@ -14,6 +14,7 @@ using static WitherTorch.Core.Utils.WebClient2;
 
 using Version = System.Version;
 using YamlDotNet.Core;
+using WitherTorch.Core.Runtime;
 
 namespace WitherTorch.Core.Servers
 {
@@ -222,11 +223,11 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override void StopServerCore(SystemProcess process, bool force)
+        protected override void StopServerCore(ILocalProcess process, bool force)
         {
             if (force)
             {
-                process.Kill();
+                process.Stop();
                 return;
             }
             process.InputCommand("stop");

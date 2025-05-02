@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Diagnostics;
 
+using WitherTorch.Core.Runtime;
+
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
@@ -8,7 +10,7 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public abstract class LocalServerBase : Server
     {
-        private readonly SystemProcess _process;
+        private readonly ILocalProcess _process;
 
         private bool _isStarted;
 
@@ -19,14 +21,14 @@ namespace WitherTorch.Core.Servers
         protected LocalServerBase(string serverDirectory) : base(serverDirectory)
         {
             _isStarted = false;
-            SystemProcess process = new SystemProcess();
+            ILocalProcess process = new LocalProcess();
             process.ProcessStarted += delegate (object? sender, EventArgs e) { _isStarted = true; };
             process.ProcessEnded += delegate (object? sender, EventArgs e) { _isStarted = false; };
             _process = process;
         }
 
         /// <inheritdoc/>
-        public override AbstractProcess GetProcess()
+        public override IProcess GetProcess()
         {
             return _process;
         }
@@ -40,7 +42,7 @@ namespace WitherTorch.Core.Servers
             if (startInfo is null)
                 return false;
             OnBeforeRunServer();
-            return _process.StartProcess(startInfo);
+            return _process.Start(startInfo);
         }
 
         /// <inheritdoc/>
@@ -48,7 +50,7 @@ namespace WitherTorch.Core.Servers
         {
             if (!_isStarted)
                 return;
-            SystemProcess process = _process;
+            ILocalProcess process = _process;
             if (!process.IsAlive)
                 return;
             StopServerCore(process, force);
@@ -64,8 +66,8 @@ namespace WitherTorch.Core.Servers
         /// <summary>
         /// 子類別需覆寫為關閉伺服器的程式碼
         /// </summary>
-        /// <param name="process">要關閉的 <see cref="SystemProcess"/> 物件</param>
+        /// <param name="process">要關閉的 <see cref="ILocalProcess"/> 物件</param>
         /// <param name="force">是否使用強制關閉模式</param>
-        protected abstract void StopServerCore(SystemProcess process, bool force);
+        protected abstract void StopServerCore(ILocalProcess process, bool force);
     }
 }

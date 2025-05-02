@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 
 using WitherTorch.Core.Property;
+using WitherTorch.Core.Runtime;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -140,7 +141,7 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override void StopServerCore(SystemProcess process, bool force)
+        protected override void StopServerCore(LocalProcess process, bool force)
         {
             if (force)
             {
