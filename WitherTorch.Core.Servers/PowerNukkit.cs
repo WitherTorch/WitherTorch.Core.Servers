@@ -141,11 +141,11 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override void StopServerCore(LocalProcess process, bool force)
+        protected override void StopServerCore(ILocalProcess process, bool force)
         {
             if (force)
             {
-                process.Kill();
+                process.Stop();
                 return;
             }
             process.InputCommand("stop");

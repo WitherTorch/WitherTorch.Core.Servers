@@ -21,7 +21,7 @@ namespace WitherTorch.Core.Servers
         protected LocalServerBase(string serverDirectory) : base(serverDirectory)
         {
             _isStarted = false;
-            ILocalProcess process = new LocalProcess();
+            ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
             process.ProcessStarted += delegate (object? sender, EventArgs e) { _isStarted = true; };
             process.ProcessEnded += delegate (object? sender, EventArgs e) { _isStarted = false; };
             _process = process;

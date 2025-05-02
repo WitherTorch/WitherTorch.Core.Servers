@@ -1,5 +1,7 @@
 ﻿using System;
 
+using WitherTorch.Core.Runtime;
+
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
@@ -86,5 +88,10 @@ namespace WitherTorch.Core.Servers
                 }
             }
         }
+
+        /// <summary>
+        /// 取得或設定建立 <see cref="ILocalProcess"/> 物件的工廠方法
+        /// </summary>
+        public static Func<ILocalProcess> LocalProcessFactory { get; set; } = static () => new LocalProcess();
     }
 }

@@ -9,8 +9,6 @@ using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
-using YamlDotNet.Core.Tokens;
-
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
