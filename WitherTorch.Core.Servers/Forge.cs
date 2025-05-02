@@ -164,7 +164,8 @@ namespace WitherTorch.Core.Servers
                         {
                             task.OnInstallFailed();
                         }
-                    };
+                    }
+                    ;
                     FileDownloadHelper.TaskFinished += AfterDownload;
                 }
                 return true;
@@ -294,31 +295,26 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
+        protected override bool TryPrepareProcessStartInfoCore(JavaRuntimeEnvironment environment, out LocalProcessStartInfo startInfo)
         {
             string fullVersionString = GetFullVersionString();
             string? path = GetPossibleForgePaths(fullVersionString)
                 .Where(File.Exists)
                 .FirstOrDefault();
             if (path is null)
-                return PrepareProcessStartInfoForArgFile(environment, "@libraries/net/minecraftforge/forge/" + fullVersionString);
-            return new ProcessStartInfo
-            {
-                FileName = environment.JavaPath ?? "java",
-                Arguments = string.Format(
+                return TryPrepareProcessStartInfoForArgFile(environment, "@libraries/net/minecraftforge/forge/" + fullVersionString, out startInfo);
+            startInfo = new LocalProcessStartInfo(
+                fileName: environment.JavaPath ?? "java",
+                arguments: string.Format(
                     "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
                     environment.JavaPreArguments ?? string.Empty,
                     path,
-                    environment.JavaPostArguments ?? string.Empty
-                ),
-                WorkingDirectory = ServerDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-            };
+                    environment.JavaPostArguments ?? string.Empty),
+                workingDirectory: ServerDirectory);
+            return true;
         }
 
-        private ProcessStartInfo? PrepareProcessStartInfoForArgFile(JavaRuntimeEnvironment environment, string path)
+        private bool TryPrepareProcessStartInfoForArgFile(JavaRuntimeEnvironment environment, string path, out LocalProcessStartInfo startInfo)
         {
 #if NET5_0_OR_GREATER
             if (OperatingSystem.IsWindows())
@@ -349,20 +345,15 @@ namespace WitherTorch.Core.Servers
                     break;
             }
 #endif
-            return new ProcessStartInfo
-            {
-                FileName = environment.JavaPath ?? "java",
-                Arguments = string.Format(
+            startInfo = new LocalProcessStartInfo(
+                fileName: environment.JavaPath ?? "java",
+                arguments: string.Format(
                     "-Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} {1} {2}",
                     environment.JavaPreArguments ?? string.Empty,
                     path,
-                    environment.JavaPostArguments ?? string.Empty
-                ),
-                WorkingDirectory = ServerDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-            };
+                    environment.JavaPostArguments ?? string.Empty),
+                workingDirectory: ServerDirectory);
+            return true;
         }
 
         private IEnumerable<string> GetPossibleForgePaths(string fullVersionString)

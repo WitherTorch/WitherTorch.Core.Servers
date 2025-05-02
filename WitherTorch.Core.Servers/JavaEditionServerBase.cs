@@ -103,33 +103,27 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
-        {
-            if (environment is JavaRuntimeEnvironment currentEnv)
-                return PrepareProcessStartInfoCore(currentEnv);
-            return PrepareProcessStartInfoCore(RuntimeEnvironment.JavaDefault);
-        }
+        protected override bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo) 
+            => TryPrepareProcessStartInfoCore(environment as JavaRuntimeEnvironment ?? RuntimeEnvironment.JavaDefault, out startInfo);
 
-        /// <inheritdoc cref="PrepareProcessStartInfo(RuntimeEnvironment?)"/>
-        protected virtual ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
+        /// <inheritdoc cref="TryPrepareProcessStartInfo(RuntimeEnvironment?, out LocalProcessStartInfo)"/>
+        protected virtual bool TryPrepareProcessStartInfoCore(JavaRuntimeEnvironment environment, out LocalProcessStartInfo startInfo)
         {
             string jarPath = GetServerJarPath();
             if (!File.Exists(jarPath))
-                return null;
-            return new ProcessStartInfo
             {
-                FileName = environment.JavaPath ?? "java",
-                Arguments = string.Format(
+                startInfo = default;
+                return false;
+            }
+            startInfo = new LocalProcessStartInfo(
+                fileName: environment.JavaPath ?? "java",
+                arguments: string.Format(
                     "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
                     environment.JavaPreArguments ?? string.Empty,
                     jarPath,
-                    environment.JavaPostArguments ?? string.Empty
-                ),
-                WorkingDirectory = ServerDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-            };
+                    environment.JavaPostArguments ?? string.Empty),
+                workingDirectory: ServerDirectory);
+            return true;
         }
 
         /// <summary>

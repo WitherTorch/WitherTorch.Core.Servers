@@ -38,8 +38,7 @@ namespace WitherTorch.Core.Servers
         {
             if (_isStarted)
                 return true;
-            ProcessStartInfo? startInfo = PrepareProcessStartInfo(environment);
-            if (startInfo is null)
+            if (!TryPrepareProcessStartInfo(environment, out LocalProcessStartInfo startInfo))
                 return false;
             OnBeforeRunServer();
             return _process.Start(startInfo);
@@ -57,11 +56,12 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <summary>
-        /// 傳回 <see cref="RunServer(RuntimeEnvironment?)"/> 所使用的處理序啟動資訊
+        /// 嘗試傳回 <see cref="RunServer(RuntimeEnvironment?)"/> 所使用的處理序啟動資訊
         /// </summary>
         /// <param name="environment">執行時的環境</param>
-        /// <returns></returns>
-        protected abstract ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment);
+        /// <param name="startInfo">本機處理序的啟動資訊</param>
+        /// <returns>是否成功傳回啟動資訊</returns>
+        protected abstract bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo);
 
         /// <summary>
         /// 子類別需覆寫為關閉伺服器的程式碼

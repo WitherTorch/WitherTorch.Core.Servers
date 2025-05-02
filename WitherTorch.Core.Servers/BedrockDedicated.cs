@@ -206,20 +206,17 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
+        protected override bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo)
         {
             string serverDirectory = ServerDirectory;
             string path = Path.Combine(serverDirectory, "./bedrock_server.exe");
             if (!File.Exists(path))
-                return null;
-            return new ProcessStartInfo
             {
-                FileName = path,
-                WorkingDirectory = serverDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-            };
+                startInfo = default;
+                return false;
+            }
+            startInfo = new LocalProcessStartInfo(path, string.Empty, serverDirectory);
+            return true;
         }
 
         /// <inheritdoc/>

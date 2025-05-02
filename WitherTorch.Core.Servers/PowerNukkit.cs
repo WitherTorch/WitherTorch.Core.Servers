@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -41,7 +40,7 @@ namespace WitherTorch.Core.Servers
 
         /// <inheritdoc/>
         public override string ServerVersion => _version;
-        
+
         /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
@@ -71,7 +70,8 @@ namespace WitherTorch.Core.Servers
                 senderTask.InstallFinished -= onInstallFinished;
                 server._version = version;
                 server.OnServerVersionChanged();
-            };
+            }
+            ;
             result.InstallFinished += onInstallFinished;
             return result;
         }
@@ -111,33 +111,27 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override ProcessStartInfo? PrepareProcessStartInfo(RuntimeEnvironment? environment)
-        {
-            if (environment is JavaRuntimeEnvironment currentEnv)
-                return PrepareProcessStartInfoCore(currentEnv);
-            return PrepareProcessStartInfoCore(RuntimeEnvironment.JavaDefault);
-        }
+        protected override bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo)
+            => TryPrepareProcessStartInfoCore(environment as JavaRuntimeEnvironment ?? RuntimeEnvironment.JavaDefault, out startInfo);
 
-        private ProcessStartInfo? PrepareProcessStartInfoCore(JavaRuntimeEnvironment environment)
+        private bool TryPrepareProcessStartInfoCore(JavaRuntimeEnvironment environment, out LocalProcessStartInfo startInfo)
         {
             string serverDirectory = ServerDirectory;
             string jarPath = Path.Combine(serverDirectory, "./powernukkit-" + GetReadableVersion() + ".jar");
             if (!File.Exists(jarPath))
-                return null;
-            return new ProcessStartInfo
             {
-                FileName = environment.JavaPath ?? "java",
-                Arguments = string.Format(
+                startInfo = default;
+                return false;
+            }
+            startInfo = new LocalProcessStartInfo(
+                fileName: environment.JavaPath ?? "java",
+                arguments: string.Format(
                     "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
                     environment.JavaPreArguments ?? string.Empty,
                     jarPath,
-                    environment.JavaPostArguments ?? string.Empty
-                ),
-                WorkingDirectory = serverDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-            };
+                    environment.JavaPostArguments ?? string.Empty),
+                workingDirectory: serverDirectory);
+            return true;
         }
 
         /// <inheritdoc/>
