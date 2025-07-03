@@ -309,7 +309,7 @@ namespace WitherTorch.Core.Servers
             startInfo = new LocalProcessStartInfo(
                 fileName: environment.JavaPath ?? "java",
                 arguments: string.Format(
-                    "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
+                    "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} {1} {2}",
                     environment.JavaPreArguments ?? string.Empty,
                     path,
                     environment.JavaPostArguments ?? string.Empty),
