@@ -7,10 +7,6 @@ using System.Xml;
 
 using WitherTorch.Core.Utils;
 
-#if NET8_0_OR_GREATER
-using System.Collections.Frozen;
-#endif
-
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>

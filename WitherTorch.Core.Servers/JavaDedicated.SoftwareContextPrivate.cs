@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Software;
@@ -24,9 +26,9 @@ namespace WitherTorch.Core.Servers
 
             public override JavaDedicated? CreateServerInstance(string serverDirectory) => new JavaDedicated(serverDirectory);
 
-            public override bool TryInitialize()
+            public override async Task<bool> TryInitializeAsync(CancellationToken token)
             {
-                if (!base.TryInitialize())
+                if (!await base.TryInitializeAsync(token))
                     return false;
                 _versions = LoadVersionList();
                 return true;

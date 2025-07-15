@@ -12,12 +12,10 @@ using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
 {
-    /// <summary>
-    /// 操作 Quilt 官方的安裝工具 (Quilt Installer) 的類別，此類別無法建立實體
-    /// </summary>
-    public sealed class QuiltInstaller
+    internal sealed class QuiltInstaller
     {
         private delegate void UpdateProgressChangedEventHandler(int progress);
+        public delegate void AfterInstalledEventHandler(string minecraftVersion, string quiltLoaderVersion);
 
         private const string manifestListURL = "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/maven-metadata.xml";
         private const string downloadURL = "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/{0}/quilt-installer-{0}.jar";
@@ -113,13 +111,7 @@ namespace WitherTorch.Core.Servers.Utils
             client.DownloadFileAsync(new Uri(string.Format(downloadURL, version)), buildToolFileInfo.FullName);
         }
 
-        /// <summary>
-        /// 用指定的 Minecraft 版本和 Fabric Loader 版本來安裝伺服器軟體
-        /// </summary>
-        /// <param name="task">要紀錄安裝過程的工作物件</param>
-        /// <param name="minecraftVersion">要安裝的 Minecraft 版本</param>
-        /// <param name="quiltLoaderVersion">要安裝的 Quilt Loader 版本</param>
-        public void Install(InstallTask task, string minecraftVersion, string quiltLoaderVersion)
+        public void Install(InstallTask task, string minecraftVersion, string quiltLoaderVersion, AfterInstalledEventHandler afterInstalledEventHandler)
         {
             InstallTask installTask = task;
             QuiltInstallerStatus status = new QuiltInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
@@ -149,7 +141,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     installTask.ChangePercentage(50);
                     installTask.OnStatusChanged();
-                    DoInstall(installTask, status, minecraftVersion, quiltLoaderVersion);
+                    DoInstall(installTask, status, minecraftVersion, quiltLoaderVersion, afterInstalledEventHandler);
                 };
                 Update(installTask, newVersion);
             }
@@ -157,11 +149,11 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 installTask.ChangePercentage(50);
                 installTask.OnStatusChanged();
-                DoInstall(installTask, status, minecraftVersion, quiltLoaderVersion);
+                DoInstall(installTask, status, minecraftVersion, quiltLoaderVersion, afterInstalledEventHandler);
             }
         }
 
-        private static void DoInstall(InstallTask task, QuiltInstallerStatus status, string minecraftVersion, string quiltVersion)
+        private static void DoInstall(InstallTask task, QuiltInstallerStatus status, string minecraftVersion, string quiltVersion, AfterInstalledEventHandler afterInstalledEventHandler)
         {
             InstallTask installTask = task;
             QuiltInstallerStatus installStatus = status;
@@ -193,6 +185,7 @@ namespace WitherTorch.Core.Servers.Utils
             innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
+                afterInstalledEventHandler.Invoke(minecraftVersion, quiltVersion);
                 installTask.OnInstallFinished();
                 installTask.ChangePercentage(100);
                 innerProcess.Dispose();

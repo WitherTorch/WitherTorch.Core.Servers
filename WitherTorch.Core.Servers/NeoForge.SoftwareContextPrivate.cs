@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using System.Threading;
 using System.Xml;
 
 using WitherTorch.Core.Servers.Software;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
+using System.Runtime.CompilerServices;
 
 namespace WitherTorch.Core.Servers
 {
@@ -33,18 +36,22 @@ namespace WitherTorch.Core.Servers
 
         private class SoftwareContextPrivate : SoftwareContextBase<NeoForge>, IForgeLikeSoftwareSoftware
         {
-            private const string LegacyManifestListURL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml";
-            private const string ManifestListURL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+            private const string MainSourceDomain = "https://maven.neoforged.net/releases";
+            private const string MirrorSourceDomain = "https://maven.creeperhost.net";
+            private const string LegacyManifestListURL = "{0}/net/neoforged/forge/maven-metadata.xml";
+            private const string ManifestListURL = "{0}/releases/net/neoforged/neoforge/maven-metadata.xml";
 
-            private IReadOnlyDictionary<string, ForgeVersionEntry[]> _versionDict = EmptyDictionary<string, ForgeVersionEntry[]>.Instance;
+            private static readonly string[] SourceDomains = [MainSourceDomain, MirrorSourceDomain];
+            private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>> _versionDictGroupLazy =
+                new Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>>(LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
-            private string[] _versions = Array.Empty<string>();
-
-            public IReadOnlyDictionary<string, ForgeVersionEntry[]> VersionDictionary => _versionDict;
+            public IReadOnlyDictionary<string, ForgeVersionEntry[]> VersionDictionary
+                => _versionDictGroupLazy.Value.Result.Dictionary;
 
             public SoftwareContextPrivate() : base(SoftwareId) { }
 
-            public override string[] GetSoftwareVersions() => _versions;
+            public override string[] GetSoftwareVersions()
+                => _versionDictGroupLazy.Value.Result.Keys;
 
             public string[] GetForgeVersionsFromMinecraftVersion(string minecraftVersion)
             {
@@ -61,49 +68,69 @@ namespace WitherTorch.Core.Servers
             }
 
             public ForgeVersionEntry[] GetForgeVersionEntriesFromMinecraftVersion(string minecraftVersion)
-                => _versionDict.TryGetValue(minecraftVersion, out ForgeVersionEntry[]? result) ? result : Array.Empty<ForgeVersionEntry>();
+                => VersionDictionary.TryGetValue(minecraftVersion, out ForgeVersionEntry[]? result) ? result : Array.Empty<ForgeVersionEntry>();
 
             public override NeoForge? CreateServerInstance(string serverDirectory) => new NeoForge(serverDirectory);
 
-            public override bool TryInitialize()
+            public override async Task<bool> TryInitializeAsync(CancellationToken token)
             {
-                if (!base.TryInitialize())
+                if (!await base.TryInitializeAsync(token))
                     return false;
-                IReadOnlyDictionary<string, ForgeVersionEntry[]> versionDict = LoadVersionDictionary();
-                _versionDict = versionDict;
-                _versions = versionDict.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse());
+                await _versionDictGroupLazy.Value;
                 return true;
             }
-            private static IReadOnlyDictionary<string, ForgeVersionEntry[]> LoadVersionDictionary()
+
+            private static async Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>> LoadVersionDictionaryAsync()
             {
+                IReadOnlyDictionary<string, ForgeVersionEntry[]>? dict;
                 try
                 {
-                    return LoadVersionDictionaryCore() ?? EmptyDictionary<string, ForgeVersionEntry[]>.Instance;
+                    dict = await LoadVersionDictionaryCoreAsync();
                 }
                 catch (Exception)
                 {
+                    dict = null;
                 }
-                GC.Collect(2, GCCollectionMode.Optimized);
-                return EmptyDictionary<string, ForgeVersionEntry[]>.Instance;
+                finally
+                {
+                    GC.Collect(2, GCCollectionMode.Optimized);
+                }
+                if (dict is null || dict.Count <= 0)
+                    return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
+                return new ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>(dict, static keys =>
+                {
+                    Array.Sort(keys, MojangAPI.VersionComparer.Instance);
+                    Array.Reverse(keys);
+                });
             }
 
-            private static IReadOnlyDictionary<string, ForgeVersionEntry[]> LoadVersionDictionaryCore()
+            private static async Task<IReadOnlyDictionary<string, ForgeVersionEntry[]>?> LoadVersionDictionaryCoreAsync()
             {
                 Dictionary<string, List<ForgeVersionEntry>> dict = new Dictionary<string, List<ForgeVersionEntry>>();
+                StrongBox<int> preferredDomainIndexBox = new StrongBox<int>(0);
+
                 try
                 {
-                    LoadLegacyVersionData(dict);
+                    await LoadLegacyVersionDataAsync(dict, preferredDomainIndexBox);
                 }
                 catch (Exception)
                 {
                 }
+
+                if (preferredDomainIndexBox.Value >= SourceDomains.Length)
+                    return null;
+
                 try
                 {
-                    LoadVersionData(dict);
+                    await LoadVersionData(dict, preferredDomainIndexBox.Value);
                 }
                 catch (Exception)
                 {
                 }
+
+                if (dict.Count <= 0)
+                    return null;
+
                 Dictionary<string, ForgeVersionEntry[]> result = new Dictionary<string, ForgeVersionEntry[]>(dict.Count);
                 foreach (var item in dict)
                 {
@@ -111,14 +138,24 @@ namespace WitherTorch.Core.Servers
                     Array.Reverse(values);
                     result.Add(item.Key, values);
                 }
-
                 return result.AsReadOnlyDictionary();
             }
 
-            private static void LoadLegacyVersionData(Dictionary<string, List<ForgeVersionEntry>> dict)
+            private static async Task LoadLegacyVersionDataAsync(Dictionary<string, List<ForgeVersionEntry>> dict, StrongBox<int> preferredDomainIndexBox)
             {
-                string? manifestString = CachedDownloadClient.Instance.DownloadString(LegacyManifestListURL);
-                if (string.IsNullOrEmpty(manifestString))
+                string? manifestString = null;
+                string[] sourceDomains = SourceDomains;
+                int preferredDomainIndex = preferredDomainIndexBox.Value;
+                int domainCount = sourceDomains.Length;
+                for (; preferredDomainIndex < domainCount; preferredDomainIndex++)
+                {
+                    string url = string.Format(LegacyManifestListURL, sourceDomains[preferredDomainIndex]);
+                    manifestString = await CachedDownloadClient.Instance.DownloadStringAsync(url);
+                    if (!string.IsNullOrEmpty(manifestString))
+                        break;
+                }
+                preferredDomainIndexBox.Value = preferredDomainIndex;
+                if (preferredDomainIndex >= domainCount || manifestString is null)
                     return;
                 XmlDocument manifestXML = new XmlDocument();
                 manifestXML.LoadXml(manifestString);
@@ -130,39 +167,29 @@ namespace WitherTorch.Core.Servers
                     string versionString = node.InnerText;
                     if (versionString is null || versionString == "1.20.1-47.1.7") //此版本不存在
                         continue;
-                    string[] versionSplits = node.InnerText.Split(new char[] { '-' });
+                    string[] versionSplits = node.InnerText.Split('-');
                     if (versionSplits.Length < 2)
                         continue;
-                    string version;
-                    unsafe
-                    {
-                        string rawVersion = versionSplits[0];
-                        fixed (char* rawVersionString = rawVersion)
-                        {
-                            char* rawVersionStringEnd = rawVersionString + rawVersion.Length;
-                            char* pointerChar = rawVersionString;
-                            while (pointerChar < rawVersionStringEnd)
-                            {
-                                if (*pointerChar == '_')
-                                {
-                                    *pointerChar = '-';
-                                    break;
-                                }
-                                pointerChar++;
-                            }
-                            version = new string(rawVersionString).Replace(".0", "");
-                        }
-                    }
+                    string version = VersionStringHelper.ReplaceOnce(versionSplits[0], '_', '-').Replace(".0", string.Empty);
                     if (!dict.TryGetValue(version, out List<ForgeVersionEntry>? historyVersionList))
                         dict.Add(version, historyVersionList = new List<ForgeVersionEntry>());
                     historyVersionList.Add(new ForgeVersionEntry(versionSplits[1], versionString));
                 }
             }
 
-            private static void LoadVersionData(Dictionary<string, List<ForgeVersionEntry>> dict)
+            private static async Task LoadVersionData(Dictionary<string, List<ForgeVersionEntry>> dict, int preferredDomainIndex)
             {
-                string? manifestString = CachedDownloadClient.Instance.DownloadString(ManifestListURL);
-                if (string.IsNullOrEmpty(manifestString))
+                string? manifestString = null;
+                string[] sourceDomains = SourceDomains;
+                int domainCount = sourceDomains.Length;
+                for (; preferredDomainIndex < domainCount; preferredDomainIndex++)
+                {
+                    string url = string.Format(LegacyManifestListURL, sourceDomains[preferredDomainIndex]);
+                    manifestString = await CachedDownloadClient.Instance.DownloadStringAsync(url);
+                    if (!string.IsNullOrEmpty(manifestString))
+                        break;
+                }
+                if (preferredDomainIndex >= domainCount || manifestString is null)
                     return;
                 XmlDocument manifestXML = new XmlDocument();
                 manifestXML.LoadXml(manifestString);
@@ -174,7 +201,7 @@ namespace WitherTorch.Core.Servers
                     string versionString = token.InnerText;
                     if (versionString is null)
                         continue;
-                    string[] versionSplits = versionString.Split(new char[] { '-' });
+                    string[] versionSplits = versionString.Split('-');
                     if (versionSplits.Length < 1)
                         continue;
                     string version = versionSplits[0];

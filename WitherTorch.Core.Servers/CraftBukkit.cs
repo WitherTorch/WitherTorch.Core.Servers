@@ -4,10 +4,11 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
-using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
+
+using YamlDotNet.Core;
 
 namespace WitherTorch.Core.Servers
 {
@@ -72,28 +73,27 @@ namespace WitherTorch.Core.Servers
 
         /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
-        {
-            int build = SpigotAPI.GetBuildNumber(version);
-            if (build < 0)
-                return null;
-            return GenerateInstallServerTaskCore(version, build);
-        }
+            => new InstallTask(this, version, (task, token) =>
+                    {
+                        if (token.IsCancellationRequested)
+                        {
+                            task.OnInstallFailed();
+                            return;
+                        }
+                        int buildNumber = SpigotAPI.GetBuildNumber(version);
+                        if (buildNumber < 0 || token.IsCancellationRequested)
+                        {
+                            task.OnInstallFailed();
+                            return;
+                        }
+                        SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, version, buildNumber, CallWhenInstallerFinished);
+                    });
 
-        private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, int build)
+        private void CallWhenInstallerFinished(string minecraftVersion, int buildNumber)
         {
-            InstallTask result = new InstallTask(this, minecraftVersion,
-                (task, token) => SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.CraftBukkit, minecraftVersion));
-            void onServerInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask senderTask || senderTask.Owner is not CraftBukkit server)
-                    return;
-                senderTask.InstallFinished -= onServerInstallFinished;
-                server._version = minecraftVersion;
-                server._build = build;
-                server.OnServerVersionChanged();
-            }
-            result.InstallFinished += onServerInstallFinished;
-            return result;
+            _version = minecraftVersion;
+            _build = buildNumber;
+            OnServerVersionChanged();
         }
 
         /// <inheritdoc/>

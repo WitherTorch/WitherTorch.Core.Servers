@@ -115,7 +115,7 @@ namespace WitherTorch.Core.Servers
                 downloadStatus.Percentage = 100;
             }
             task.ChangePercentage(50);
-            if (e.Cancelled || e.Error is object)
+            if (e.Cancelled || e.Error is not null)
             {
                 task.OnInstallFailed();
                 return;

@@ -54,33 +54,30 @@ namespace WitherTorch.Core.Servers
         {
             if (string.IsNullOrWhiteSpace(version))
                 return null;
-            string fullVersionString = _software.QueryFullVersionString(version);
-            if (string.IsNullOrWhiteSpace(fullVersionString))
-                return null;
-
-            InstallTask result = new InstallTask(this, version, (task, token) =>
+            return new InstallTask(this, version, (task, token) =>
             {
+                string fullVersionString = _software.QueryFullVersionString(version);
+                if (string.IsNullOrWhiteSpace(fullVersionString) || token.IsCancellationRequested)
+                {
+                    task.OnInstallFailed();
+                    return;
+                }
                 if (!InstallServerCore(task, version, fullVersionString))
                     task.OnInstallFailed();
             });
-            void onInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask senderTask || senderTask.Owner is not PowerNukkit server)
-                    return;
-                senderTask.InstallFinished -= onInstallFinished;
-                server._version = version;
-                server.OnServerVersionChanged();
-            }
-            ;
-            result.InstallFinished += onInstallFinished;
-            return result;
         }
 
         private bool InstallServerCore(InstallTask task, string version, string fullVersionString)
         {
+            void afterInstallFinished()
+            {
+                _version = version;
+                OnServerVersionChanged();
+            }
             return FileDownloadHelper.AddTask(task: task,
                 downloadUrl: string.Format(DownloadURL, fullVersionString),
-                filename: Path.Combine(ServerDirectory, @"powernukkit-" + version + ".jar")).HasValue;
+                filename: Path.Combine(ServerDirectory, @"powernukkit-" + version + ".jar"),
+                afterInstalledAction: afterInstallFinished).HasValue;
         }
 
         /// <inheritdoc/>

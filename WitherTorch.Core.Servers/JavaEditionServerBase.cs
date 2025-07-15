@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Runtime;
@@ -147,7 +149,7 @@ namespace WitherTorch.Core.Servers
         /// Java 版伺服器軟體的上下文基底類別
         /// </summary>
         /// <typeparam name="T">與此類別相關聯的伺服器類型</typeparam>
-        /// <remarks>此基底類別的 <see cref="TryInitialize"/> 會自動呼叫 <see cref="MojangAPI.Initialize"/> 來初始化 Minecraft 版本列表，子類別無須二次呼叫</remarks>
+        /// <remarks>此基底類別的 <see cref="TryInitializeAsync"/> 會自動呼叫 <see cref="MojangAPI.InitializeAsync"/> 來初始化 Minecraft 版本列表，子類別無須二次呼叫</remarks>
         protected abstract class SoftwareContextBase<T> : Core.Software.SoftwareContextBase<T> where T : JavaEditionServerBase
         {
             /// <summary>
@@ -157,9 +159,11 @@ namespace WitherTorch.Core.Servers
             protected SoftwareContextBase(string softwareId) : base(softwareId) { }
 
             /// <inheritdoc/>
-            public override bool TryInitialize()
+            public override async Task<bool> TryInitializeAsync(CancellationToken token)
             {
-                MojangAPI.Initialize(); //呼叫 Mojang API 進行版本列表提取
+                if (token.IsCancellationRequested)
+                    return false;
+                await MojangAPI.InitializeAsync(); //呼叫 Mojang API 進行版本列表提取
                 return true;
             }
         }

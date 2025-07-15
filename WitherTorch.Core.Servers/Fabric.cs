@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 
+using YamlDotNet.Core;
+
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
@@ -52,35 +54,53 @@ namespace WitherTorch.Core.Servers
         public override string GetSoftwareId() => SoftwareId;
 
         /// <inheritdoc/>
-        public override InstallTask? GenerateInstallServerTask(string version) => GenerateInstallServerTask(version, string.Empty);
+        public override InstallTask? GenerateInstallServerTask(string version)
+        {
+            if (string.IsNullOrWhiteSpace(version))
+                return null;
+            return new InstallTask(this, version,
+                (task, token) =>
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        task.OnInstallFailed();
+                        return;
+                    }
+                    string fabricLoaderVersion = _software.GetLatestStableFabricLoaderVersionAsync().Result;
+                    if (string.IsNullOrWhiteSpace(fabricLoaderVersion) || token.IsCancellationRequested)
+                    {
+                        task.OnInstallFailed();
+                        return;
+                    }    
+                    FabricInstaller.Instance.Install(task, version, fabricLoaderVersion, CallWhenInstallerFinished);
+                });
+        }
 
         /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
         /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
         /// <param name="fabricLoaderVersion">要更改的 Fabric Loader 版本</param>
         public InstallTask? GenerateInstallServerTask(string minecraftVersion, string fabricLoaderVersion)
         {
-            if (string.IsNullOrWhiteSpace(minecraftVersion))
+            if (string.IsNullOrWhiteSpace(minecraftVersion) || string.IsNullOrWhiteSpace(fabricLoaderVersion))
                 return null;
-            if (string.IsNullOrWhiteSpace(fabricLoaderVersion))
-            {
-                fabricLoaderVersion = _software.GetLatestStableFabricLoaderVersion();
-                if (string.IsNullOrWhiteSpace(fabricLoaderVersion))
-                    return null;
-            }
-            InstallTask result = new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion,
-                (task, token) => FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion));
-            void onInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask senderTask || senderTask.Owner is not Fabric server)
-                    return;
-                senderTask.InstallFinished -= onInstallFinished;
-                server._minecraftVersion = minecraftVersion;
-                server._fabricLoaderVersion = fabricLoaderVersion;
-                server._versionInfo = null;
-                server.OnServerVersionChanged();
-            }
-            result.InstallFinished += onInstallFinished;
-            return result;
+            return new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion,
+                (task, token) =>
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        task.OnInstallFailed();
+                        return;
+                    }
+                    FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion, CallWhenInstallerFinished);
+                });
+        }
+
+        private void CallWhenInstallerFinished(string minecraftVersion, string fabricLoaderVersion)
+        {
+            _minecraftVersion = minecraftVersion;
+            _fabricLoaderVersion = fabricLoaderVersion;
+            _versionInfo = null;
+            OnServerVersionChanged();
         }
 
         /// <inheritdoc/>

@@ -4,45 +4,38 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
-using WitherTorch.Core.Utils;
+using System.Threading.Tasks;
 
-#if NET8_0_OR_GREATER
-using System.Collections.Frozen;
-#endif
+using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>
     /// 提供與 Mojang 相關的公用 API，此類別是靜態類別
     /// </summary>
-    public static class MojangAPI
+    public static partial class MojangAPI
     {
         private const string manifestListURL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
-        private static readonly Lazy<IReadOnlyDictionary<string, VersionInfo>> _versionDictLazy = new Lazy<IReadOnlyDictionary<string, VersionInfo>>(
-            LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
-
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
-            () => _versionDictLazy.Value.ToKeyArray(VersionComparer.Instance.Reverse())
-            , LazyThreadSafetyMode.PublicationOnly);
+        private static readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, VersionInfo>>> _versionDictGroupLazy =
+            new Lazy<Task<ReadOnlyDictionaryKeyGroup<string, VersionInfo>>>(LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
         /// <summary>
         /// 取得 Minecraft: Java Edition 的版本資料庫
         /// </summary>
-        public static IReadOnlyDictionary<string, VersionInfo> VersionDictionary => _versionDictLazy.Value;
+        public static IReadOnlyDictionary<string, VersionInfo> VersionDictionary 
+            => _versionDictGroupLazy.Value.Result.Dictionary;
 
         /// <summary>
         /// 取得 Minecraft: Java Edition 的版本列表
         /// </summary>
-        public static string[] Versions => _versionsLazy.Value;
+        public static string[] Versions 
+            => _versionDictGroupLazy.Value.Result.Keys;
 
         /// <summary>
         /// 初始化 API 的功能
         /// </summary>
-        public static void Initialize()
-        {
-            _ = _versionsLazy.Value;
-        }
+        public static Task InitializeAsync() => _versionDictGroupLazy.Value;
 
         private class VersionManifestModel
         {
@@ -50,97 +43,36 @@ namespace WitherTorch.Core.Servers.Utils
             public VersionInfo[]? Versions { get; set; }
         }
 
-        /// <summary>
-        /// 表示一筆 Minecraft: Java Edition 的版本資料
-        /// </summary>
-        public sealed class VersionInfo : IComparable<string>, IComparable<VersionInfo>
+        private static async Task<ReadOnlyDictionaryKeyGroup<string, VersionInfo>> LoadVersionDictionaryAsync()
         {
-            /// <summary>
-            /// 版本的唯一標識符 (ID)
-            /// </summary>
-            [JsonPropertyName("id")]
-            public string? Id { get; set; }
-
-            /// <summary>
-            /// 版本的資訊清單位址
-            /// </summary>
-            [JsonPropertyName("url")]
-            public string? ManifestURL { get; set; }
-
-            /// <summary>
-            /// 版本的發布時間
-            /// </summary>
-            [JsonPropertyName("releaseTime")]
-            public DateTime ReleaseTime { get; set; }
-
-            /// <summary>
-            /// 版本的類型
-            /// </summary>
-            [JsonPropertyName("type")]
-            public string? Type { get; set; }
-
-            int IComparable<string>.CompareTo(string? other)
-            {
-                if (other is null) return 0;
-                else if (VersionDictionary.ContainsKey(other))
-                {
-                    return ReleaseTime.CompareTo(VersionDictionary[other].ReleaseTime);
-                }
-                return 0;
-            }
-
-            int IComparable<VersionInfo>.CompareTo(VersionInfo? other)
-            {
-                if (other is null) return 1;
-                else return ReleaseTime.CompareTo(other.ReleaseTime);
-            }
-
-            /// <inheritdoc/>
-            public static bool operator <(VersionInfo a, VersionInfo b)
-            {
-                return (a as IComparable<VersionInfo>).CompareTo(b) < 0;
-            }
-
-            /// <inheritdoc/>
-            public static bool operator <=(VersionInfo a, VersionInfo b)
-            {
-                return (a as IComparable<VersionInfo>).CompareTo(b) <= 0;
-            }
-
-            /// <inheritdoc/>
-            public static bool operator >(VersionInfo a, VersionInfo b)
-            {
-                return (a as IComparable<VersionInfo>).CompareTo(b) > 0;
-            }
-
-            /// <inheritdoc/>
-            public static bool operator >=(VersionInfo a, VersionInfo b)
-            {
-                return (a as IComparable<VersionInfo>).CompareTo(b) >= 0;
-            }
-        }
-
-        private static IReadOnlyDictionary<string, VersionInfo> LoadVersionList()
-        {
+            IReadOnlyDictionary<string, VersionInfo>? dict;
             try
             {
-                return LoadVersionListInternal() ?? EmptyDictionary<string, VersionInfo>.Instance;
+                dict = await LoadVersionDictionaryAsyncCore();
             }
             catch (Exception)
             {
+                dict = null;
             }
-            GC.Collect(2, GCCollectionMode.Optimized);
-            return EmptyDictionary<string, VersionInfo>.Instance;
+            finally
+            {
+                GC.Collect(generation: 1, GCCollectionMode.Optimized);
+            }
+            if (dict is null || dict.Count <= 0)
+                return ReadOnlyDictionaryKeyGroup<string, VersionInfo>.Empty;
+            return new ReadOnlyDictionaryKeyGroup<string, VersionInfo>(dict, static (dict, keys) =>
+            {
+                Array.Sort(keys, new InternalVersionComparer(dict));
+                Array.Reverse(keys);
+            });
         }
 
-        private static IReadOnlyDictionary<string, VersionInfo>? LoadVersionListInternal()
+        private static async Task<IReadOnlyDictionary<string, VersionInfo>?> LoadVersionDictionaryAsyncCore()
         {
-            string? manifestString = CachedDownloadClient.Instance.DownloadString(manifestListURL);
+            string? manifestString = await CachedDownloadClient.Instance.DownloadStringAsync(manifestListURL);
             if (string.IsNullOrEmpty(manifestString))
                 return null;
-#pragma warning disable CS8604
-            VersionManifestModel? manifestJSON = JsonSerializer.Deserialize<VersionManifestModel>(manifestString);
-#pragma warning restore CS8604
+            VersionManifestModel? manifestJSON = JsonSerializer.Deserialize<VersionManifestModel>(manifestString!);
             if (manifestJSON is null)
                 return null;
             VersionInfo[]? versions = manifestJSON.Versions;
@@ -170,36 +102,6 @@ namespace WitherTorch.Core.Servers.Utils
             int month = time.Month;
             int day = time.Day;
             return month != 4 || day != 1; // 過濾愚人節版本
-        }
-
-        /// <summary>
-        /// 版本字串的比較類別，此類別無法建立實體
-        /// </summary>
-        public sealed class VersionComparer : IComparer<string>
-        {
-            private static readonly VersionComparer _instance = new VersionComparer();
-
-            /// <summary>
-            /// <see cref="VersionComparer"/> 的唯一實體
-            /// </summary>
-            public static VersionComparer Instance => _instance;
-
-            private VersionComparer() { }
-
-            /// <inheritdoc/>
-            public int Compare(string? x, string? y)
-            {
-                if (x is null)
-                    return y is null ? 0 : -1;
-                if (y is null)
-                    return 1;
-                IReadOnlyDictionary<string, VersionInfo> versionDict = VersionDictionary;
-                if (!versionDict.TryGetValue(x, out VersionInfo? infoA))
-                    return -1;
-                if (versionDict.TryGetValue(y, out VersionInfo? infoB))
-                    return infoA.ReleaseTime.CompareTo(infoB.ReleaseTime);
-                return 1;
-            }
         }
     }
 }

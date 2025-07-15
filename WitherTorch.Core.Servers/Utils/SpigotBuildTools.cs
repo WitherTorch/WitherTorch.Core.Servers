@@ -15,9 +15,10 @@ namespace WitherTorch.Core.Servers.Utils
     /// <summary>
     /// 操作 Spigot 官方的建置工具 (BuildTools) 的類別，此類別無法建立實體
     /// </summary>
-    public sealed class SpigotBuildTools
+    internal sealed class SpigotBuildTools
     {
         private delegate void UpdateProgressChangedEventHandler(int progress);
+        public delegate void AfterInstalledEventHandler(string minecraftVersion, int buildNumber);
 
         private const string manifestListURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/api/xml";
         private const string downloadURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
@@ -93,7 +94,7 @@ namespace WitherTorch.Core.Servers.Utils
             return version <= 0;
         }
 
-        private void Update(InstallTask installTask, int version)
+        private void Update(InstallTask installTask, int minecraftVersion)
         {
             UpdateStarted?.Invoke(this, EventArgs.Empty);
             WebClient2? client = new WebClient2();
@@ -108,7 +109,8 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                 }
                 installTask.StopRequested -= StopRequestedHandler;
-            };
+            }
+            ;
             installTask.StopRequested += StopRequestedHandler;
             client.DownloadProgressChanged += delegate (object? sender, DownloadProgressChangedEventArgs e)
             {
@@ -120,7 +122,7 @@ namespace WitherTorch.Core.Servers.Utils
                 client = null;
                 using (StreamWriter writer = buildToolVersionInfo.CreateText())
                 {
-                    writer.WriteLine(version.ToString());
+                    writer.WriteLine(minecraftVersion.ToString());
                     writer.Flush();
                     writer.Close();
                 }
@@ -131,13 +133,7 @@ namespace WitherTorch.Core.Servers.Utils
             client.DownloadFileAsync(new Uri(downloadURL), buildToolFileInfo.FullName);
         }
 
-        /// <summary>
-        /// 用指定的建置目標和 Minecraft 版本來建置伺服器軟體
-        /// </summary>
-        /// <param name="task">要紀錄建置過程的工作物件</param>
-        /// <param name="target">要建置的目標伺服器軟體</param>
-        /// <param name="version">要建置的 Minecraft 版本</param>
-        public void Install(InstallTask task, BuildTarget target, string version)
+        public void Install(InstallTask task, BuildTarget target, string minecraftVersion, int buildNumber, AfterInstalledEventHandler afterInstalledEventHandler)
         {
             InstallTask installTask = task;
             SpigotBuildToolsStatus status = new SpigotBuildToolsStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
@@ -147,7 +143,8 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 isStop = true;
                 installTask.StopRequested -= StopRequestedHandler;
-            };
+            }
+            ;
             installTask.StopRequested += StopRequestedHandler;
             bool hasUpdate = CheckUpdate(out int newVersion);
             installTask.StopRequested -= StopRequestedHandler;
@@ -167,7 +164,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     installTask.ChangePercentage(50);
                     installTask.OnStatusChanged();
-                    DoInstall(installTask, status, target, version);
+                    DoInstall(installTask, status, target, minecraftVersion, buildNumber, afterInstalledEventHandler);
                 };
                 Update(installTask, newVersion);
             }
@@ -175,11 +172,12 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 installTask.ChangePercentage(50);
                 installTask.OnStatusChanged();
-                DoInstall(installTask, status, target, version);
+                DoInstall(installTask, status, target, minecraftVersion, buildNumber, afterInstalledEventHandler);
             }
         }
 
-        private void DoInstall(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target, string version)
+        private void DoInstall(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target, 
+            string minecraftVersion, int buildNumber, AfterInstalledEventHandler afterInstalledEventHandler)
         {
             InstallTask installTask = task;
             SpigotBuildToolsStatus installStatus = status;
@@ -188,7 +186,9 @@ namespace WitherTorch.Core.Servers.Utils
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --output-dir \"{3}\"", buildToolFileInfo.FullName, version, target.ToString().ToLower(), installTask.Owner.ServerDirectory),
+                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --final-name {3} --output-dir \"{4}\"",
+                    buildToolFileInfo.FullName, minecraftVersion, 
+                    GetBuildTargetStringAndFilename(target, minecraftVersion, out string targetFilename), targetFilename, installTask.Owner.ServerDirectory),
                 WorkingDirectory = workingDirectoryInfo.FullName,
                 CreateNoWindow = true,
                 ErrorDialog = true,
@@ -217,17 +217,34 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                 }
                 installTask.StopRequested -= StopRequestedHandler;
-            };
+            }
+            ;
             installTask.StopRequested += StopRequestedHandler;
             innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
+                afterInstalledEventHandler.Invoke(minecraftVersion, buildNumber);
                 installTask.StopRequested -= StopRequestedHandler;
                 installTask.OnInstallFinished();
                 installTask.ChangePercentage(100);
                 innerProcess.Dispose();
             };
+        }
+
+        private static string GetBuildTargetStringAndFilename(BuildTarget target, string minecraftVersion, out string targetFilename)
+        {
+            switch (target)
+            {
+                case BuildTarget.CraftBukkit:
+                    targetFilename = $"craftbukkit-{minecraftVersion}.jar";
+                    return "craftbukkit";
+                case BuildTarget.Spigot:
+                    targetFilename = $"spigot-{minecraftVersion}.jar";
+                    return "spigot";
+                default:
+                    throw new InvalidEnumArgumentException(nameof(target), (int)target, typeof(BuildTarget));
+            }
         }
     }
 }

@@ -45,8 +45,11 @@ namespace WitherTorch.Core.Servers.Utils
 
             public byte[]? ExceptedHash { get; }
 
+            public Action? AfterInstalledAction { get; }
+
             public DownloadInfo(int flowNumber, InstallTask task, WebClient2? webClient, Uri downloadUrl, string fileName,
-                double initialPercentage, double percentageMultiplier, HashHelper.HashMethod hashMethod, byte[]? hashes, bool disposeWebClientAfterUsed)
+                double initialPercentage, double percentageMultiplier, HashHelper.HashMethod hashMethod, byte[]? hashes, Action? afterInstalledAction,
+                bool disposeWebClientAfterUsed)
             {
                 FlowNumber = flowNumber;
                 Task = task;
@@ -67,6 +70,7 @@ namespace WitherTorch.Core.Servers.Utils
                 PercentageMultiplier = percentageMultiplier;
                 HashMethod = hashes is null ? HashHelper.HashMethod.None : hashMethod;
                 ExceptedHash = hashMethod > HashHelper.HashMethod.None ? hashes : null;
+                AfterInstalledAction = afterInstalledAction;
             }
 
             private void Dispose(bool disposing)
@@ -102,16 +106,16 @@ namespace WitherTorch.Core.Servers.Utils
 
         public static int? AddTask(InstallTask task, string downloadUrl, string filename, WebClient2? webClient = null,
             double initPercentage = 0.0, double percentageMultiplier = 1.0, byte[]? hash = null,
-            HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None,
+            HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None, Action? afterInstalledAction = null,
             bool disposeWebClientAfterUsed = true)
         {
             if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadUri))
                 return null;
             initPercentage = Math.Max(Math.Min(initPercentage, 100.0), 0.0);
             percentageMultiplier = Math.Max(Math.Min(percentageMultiplier, (100.0 - initPercentage) / 100.0), 0.0);
-            int flowNumber = FileDownloadHelper.flowNumber++;
+            int flowNumber = Interlocked.Increment(ref FileDownloadHelper.flowNumber);
             DownloadInfo info = new DownloadInfo(flowNumber, task, webClient, downloadUri, filename, initPercentage,
-                percentageMultiplier, hashMethod, hash, disposeWebClientAfterUsed);
+                percentageMultiplier, hashMethod, hash, afterInstalledAction, disposeWebClientAfterUsed);
             Task.Factory.StartNew((obj) => StartTask(obj as DownloadInfo), info, TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach).ConfigureAwait(false);
             return flowNumber;
         }
@@ -256,6 +260,7 @@ namespace WitherTorch.Core.Servers.Utils
                     }
 #endif
                 }
+                info.AfterInstalledAction?.Invoke();
                 TaskFinished?.Invoke(null, info.FlowNumber);
                 if (task.InstallPercentage >= 100.0)
                     task.OnInstallFinished();
@@ -315,7 +320,7 @@ namespace WitherTorch.Core.Servers.Utils
             else
                 task.ChangePercentage(percentage);
 
-            if (e.Error is object || e.Cancelled)
+            if (e.Error is not null || e.Cancelled)
             {
                 Task.Factory.StartNew((obj) => EndTask(obj as DownloadInfo, failed: true), info,
                     TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach)
@@ -341,8 +346,8 @@ namespace WitherTorch.Core.Servers.Utils
                     task.ChangeStatus(new ValidatingStatus(filename));
                     try
                     {
-                        using (FileStream stream = File.Open(ObjectUtils.ThrowIfNull(tempFilename), FileMode.Open, FileAccess.Read, FileShare.Read))
-                            actualHash = HashHelper.ComputeHash(stream, hashMethod);
+                        using FileStream stream = File.Open(ObjectUtils.ThrowIfNull(tempFilename), FileMode.Open, FileAccess.Read, FileShare.Read);
+                        actualHash = HashHelper.ComputeHash(stream, hashMethod);
                     }
                     catch (Exception)
                     {

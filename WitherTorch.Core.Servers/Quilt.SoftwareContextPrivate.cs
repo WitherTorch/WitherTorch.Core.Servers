@@ -1,11 +1,12 @@
 ﻿
-using System.Threading;
 using System;
-using WitherTorch.Core.Servers.Utils;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
 using WitherTorch.Core.Servers.Software;
-using WitherTorch.Core.Software;
+using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -24,9 +25,10 @@ namespace WitherTorch.Core.Servers
             private const string ManifestListURL = "https://meta.quiltmc.org/v3/versions/game";
             private const string ManifestListURLForLoader = "https://meta.quiltmc.org/v3/versions/loader";
 
-            private readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
-            private readonly Lazy<VersionStruct[]> _loaderVersionsLazy =
-                new Lazy<VersionStruct[]>(LoadQuiltLoaderVersions, LazyThreadSafetyMode.ExecutionAndPublication);
+            private readonly Lazy<Task<string[]>> _versionsLazy =
+                 new Lazy<Task<string[]>>(LoadVersionListAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+            private readonly Lazy<Task<VersionStruct[]>> _loaderVersionsLazy =
+                new Lazy<Task<VersionStruct[]>>(LoadQuiltLoaderVersionsAsync, LazyThreadSafetyMode.ExecutionAndPublication);
             private readonly Lazy<string[]> _loaderVersionKeysLazy;
 
             public SoftwareContextPrivate() : base(SoftwareId)
@@ -34,15 +36,15 @@ namespace WitherTorch.Core.Servers
                 _loaderVersionKeysLazy = new Lazy<string[]>(LoadQuiltLoaderVersionKeys, LazyThreadSafetyMode.PublicationOnly);
             }
 
-            public override string[] GetSoftwareVersions() => _versionsLazy.Value;
+            public override string[] GetSoftwareVersions() => _versionsLazy.Value.Result;
 
             public string[] GetSoftwareLoaderVersions() => _loaderVersionKeysLazy.Value;
 
             public override Quilt? CreateServerInstance(string serverDirectory) => new Quilt(serverDirectory);
 
-            public string GetLatestStableQuiltLoaderVersion()
+            public async Task<string> GetLatestStableQuiltLoaderVersionAsync()
             {
-                VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
+                VersionStruct[] loaderVersions = await _loaderVersionsLazy.Value;
                 int count = loaderVersions.Length;
                 for (int i = 0; i < count; i++)
                 {
@@ -53,11 +55,11 @@ namespace WitherTorch.Core.Servers
                 return count > 0 ? loaderVersions[0].Version : string.Empty;
             }
 
-            private static string[] LoadVersionList()
+            private static async Task<string[]> LoadVersionListAsync()
             {
                 try
                 {
-                    return LoadVersionListInternal() ?? Array.Empty<string>();
+                    return await LoadVersionListAsyncCore() ?? Array.Empty<string>();
                 }
                 catch (Exception)
                 {
@@ -65,9 +67,9 @@ namespace WitherTorch.Core.Servers
                 return Array.Empty<string>();
             }
 
-            private static string[]? LoadVersionListInternal()
+            private static async Task<string[]?> LoadVersionListAsyncCore()
             {
-                string? manifestString = CachedDownloadClient.Instance.DownloadString(ManifestListURL);
+                string? manifestString = await CachedDownloadClient.Instance.DownloadStringAsync(ManifestListURL);
                 if (manifestString is null || manifestString.Length <= 0)
                     return null;
                 VersionStruct[]? array = JsonSerializer.Deserialize<VersionStruct[]>(manifestString);
@@ -88,11 +90,11 @@ namespace WitherTorch.Core.Servers
                 return versions;
             }
 
-            private static VersionStruct[] LoadQuiltLoaderVersions()
+            private static async Task<VersionStruct[]> LoadQuiltLoaderVersionsAsync()
             {
                 try
                 {
-                    return LoadQuiltLoaderVersionsInternal() ?? Array.Empty<VersionStruct>();
+                    return await LoadQuiltLoaderVersionsAsyncCore() ?? Array.Empty<VersionStruct>();
                 }
                 catch (Exception)
                 {
@@ -100,9 +102,9 @@ namespace WitherTorch.Core.Servers
                 return Array.Empty<VersionStruct>();
             }
 
-            private static VersionStruct[]? LoadQuiltLoaderVersionsInternal()
+            private static async Task<VersionStruct[]?> LoadQuiltLoaderVersionsAsyncCore()
             {
-                string? manifestString = CachedDownloadClient.Instance.DownloadString(ManifestListURLForLoader);
+                string? manifestString = await CachedDownloadClient.Instance.DownloadStringAsync(ManifestListURLForLoader);
                 if (manifestString is null || manifestString.Length <= 0)
                     return null;
                 return JsonSerializer.Deserialize<VersionStruct[]>(manifestString);
@@ -110,7 +112,7 @@ namespace WitherTorch.Core.Servers
 
             private string[] LoadQuiltLoaderVersionKeys()
             {
-                VersionStruct[] loaderVersions = _loaderVersionsLazy.Value;
+                VersionStruct[] loaderVersions = _loaderVersionsLazy.Value.Result;
                 int length = loaderVersions.Length;
                 if (length <= 0)
                     return Array.Empty<string>();

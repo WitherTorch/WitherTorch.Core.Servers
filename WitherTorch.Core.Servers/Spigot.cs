@@ -86,28 +86,27 @@ namespace WitherTorch.Core.Servers
 
         /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
-        {
-            int build = SpigotAPI.GetBuildNumber(version);
-            if (build < 0)
-                return null;
-            return GenerateInstallServerTaskCore(version, build);
-        }
-
-        private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, int build)
-        {
-            InstallTask result = new InstallTask(this, minecraftVersion,
-                (task, token) => SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.Spigot, minecraftVersion));
-            void onServerInstallFinished(object? sender, EventArgs e)
+            => new InstallTask(this, version, (task, token) =>
             {
-                if (sender is not InstallTask senderTask || senderTask.Owner is not Spigot server)
+                if (token.IsCancellationRequested)
+                {
+                    task.OnInstallFailed();
                     return;
-                senderTask.InstallFinished -= onServerInstallFinished;
-                server._version = minecraftVersion;
-                server._build = build;
-                server.OnServerVersionChanged();
-            }
-            result.InstallFinished += onServerInstallFinished;
-            return result;
+                }
+                int buildNumber = SpigotAPI.GetBuildNumber(version);
+                if (buildNumber < 0 || token.IsCancellationRequested)
+                {
+                    task.OnInstallFailed();
+                    return;
+                }
+                SpigotBuildTools.Instance.Install(task, SpigotBuildTools.BuildTarget.Spigot, version, buildNumber, CallWhenInstallerFinished);
+            });
+
+        private void CallWhenInstallerFinished(string minecraftVersion, int buildNumber)
+        {
+            _version = minecraftVersion;
+            _build = buildNumber;
+            OnServerVersionChanged();
         }
 
         /// <inheritdoc/>

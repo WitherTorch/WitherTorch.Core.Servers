@@ -12,15 +12,13 @@ using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
 {
-    /// <summary>
-    /// 操作 Fabric 官方的安裝工具 (Fabric Installer) 的類別，此類別無法建立實體
-    /// </summary>
-    public sealed class FabricInstaller
+    internal sealed class FabricInstaller
     {
         private delegate void UpdateProgressChangedEventHandler(int progress);
+        public delegate void AfterInstalledEventHandler(string minecraftVersion, string fabricLoaderVersion);
 
-        private const string manifestListURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml";
-        private const string downloadURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{0}/fabric-installer-{0}.jar";
+        private const string ManifestListURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml";
+        private const string DownloadURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{0}/fabric-installer-{0}.jar";
 
         private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
         private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.jar"));
@@ -31,9 +29,6 @@ namespace WitherTorch.Core.Servers.Utils
         private event UpdateProgressChangedEventHandler? UpdateProgressChanged;
         private event EventHandler? UpdateFinished;
 
-        /// <summary>
-        /// <see cref="FabricInstaller"/> 的唯一實例
-        /// </summary>
         public static FabricInstaller Instance => _instance;
 
         private static bool CheckUpdate(out string? updatedVersion)
@@ -63,7 +58,7 @@ namespace WitherTorch.Core.Servers.Utils
             using (WebClient2 client = new WebClient2())
             {
                 client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-                manifestXML.LoadXml(client.DownloadString(manifestListURL));
+                manifestXML.LoadXml(client.DownloadString(ManifestListURL));
             }
             nowVersion = manifestXML.SelectSingleNode("//metadata/versioning/latest")?.InnerText;
             if (version != nowVersion)
@@ -110,16 +105,10 @@ namespace WitherTorch.Core.Servers.Utils
                 UpdateFinished?.Invoke(this, EventArgs.Empty);
             };
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-            client.DownloadFileAsync(new Uri(string.Format(downloadURL, version)), buildToolFileInfo.FullName);
+            client.DownloadFileAsync(new Uri(string.Format(DownloadURL, version)), buildToolFileInfo.FullName);
         }
 
-        /// <summary>
-        /// 用指定的 Minecraft 版本和 Fabric Loader 版本來安裝伺服器軟體
-        /// </summary>
-        /// <param name="task">要紀錄安裝過程的工作物件</param>
-        /// <param name="minecraftVersion">要安裝的 Minecraft 版本</param>
-        /// <param name="fabricLoaderVersion">要安裝的 Fabric Loader 版本</param>
-        public void Install(InstallTask task, string minecraftVersion, string fabricLoaderVersion)
+        public void Install(InstallTask task, string minecraftVersion, string fabricLoaderVersion, AfterInstalledEventHandler afterInstalledEventHandler)
         {
             InstallTask installTask = task;
             FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
@@ -149,7 +138,7 @@ namespace WitherTorch.Core.Servers.Utils
                 {
                     installTask.ChangePercentage(50);
                     installTask.OnStatusChanged();
-                    DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion);
+                    DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion, afterInstalledEventHandler);
                 };
                 Update(installTask, newVersion);
             }
@@ -157,11 +146,11 @@ namespace WitherTorch.Core.Servers.Utils
             {
                 installTask.ChangePercentage(50);
                 installTask.OnStatusChanged();
-                DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion);
+                DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion, afterInstalledEventHandler);
             }
         }
 
-        private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion)
+        private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion, AfterInstalledEventHandler afterInstalledEventHandler)
         {
             InstallTask installTask = task;
             FabricInstallerStatus installStatus = status;
@@ -193,6 +182,7 @@ namespace WitherTorch.Core.Servers.Utils
             innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
             innerProcess.Exited += (sender, e) =>
             {
+                afterInstalledEventHandler.Invoke(minecraftVersion, fabricLoaderVersion);
                 installTask.OnInstallFinished();
                 installTask.ChangePercentage(100);
                 innerProcess.Dispose();

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -18,11 +19,11 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public sealed partial class Paper : JavaEditionServerBase
     {
-        private const string BuildVersionManifestListURL = "https://api.papermc.io/v2/projects/paper/versions/{0}";
-        private const string BuildVersionManifestListURL2 = "https://api.papermc.io/v2/projects/paper/versions/{0}/builds/{1}";
-        private const string DownloadURL = "https://api.papermc.io/v2/projects/paper/versions/{0}/builds/{1}/downloads/{2}";
+        private const string BuildVersionManifestListURL = "https://fill.papermc.io/v3/projects/paper/versions/{0}";
+        private const string BuildVersionManifestListURL2 = "https://fill.papermc.io/v3/projects/paper/versions/{0}/builds/{1}";
         private const string SoftwareId = "paper";
 
+        private static readonly string UserAgentForPaperV3Api = $"withertorch/{Assembly.GetCallingAssembly().GetName().Version} (new1271@outlook.com)";
         private static readonly Lazy<MojangAPI.VersionInfo?> mc1_19 = new Lazy<MojangAPI.VersionInfo?>(
             () => (MojangAPI.VersionDictionary?.TryGetValue("1.19", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
@@ -139,6 +140,7 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrEmpty(manifestURL))
                 return false;
             WebClient2 client = new WebClient2();
+            client.DefaultRequestHeaders.Add("User-Agent", UserAgentForPaperV3Api);
             InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
 #if NET8_0_OR_GREATER
             JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
@@ -167,40 +169,34 @@ namespace WitherTorch.Core.Servers
             if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out node))
                 return false;
             jsonObject = node as JsonObject;
-            if (jsonObject is null || !jsonObject.TryGetPropertyValue("application", out node))
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("server:default", out node))
                 return false;
             jsonObject = node as JsonObject;
-            if (jsonObject is null || !jsonObject.TryGetPropertyValue("name", out node))
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node) || node is not JsonValue urlValueNode || urlValueNode.GetValueKind() != JsonValueKind.String)
                 return false;
-            byte[]? sha256;
-            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetPropertyValue("sha256", out JsonNode? sha256Token) && sha256Token is not null)
-                sha256 = HashHelper.HexStringToByte(sha256Token.ToString());
-            else
-                sha256 = null;
-            watcher.Dispose();
-            int? id = FileDownloadHelper.AddTask(task: task, webClient: client,
-                downloadUrl: string.Format(DownloadURL, version, build, ObjectUtils.ThrowIfNull(node).ToString()),
-                filename: Path.Combine(ServerDirectory, @"paper-" + version + ".jar"),
-                hash: sha256, hashMethod: HashHelper.HashMethod.SHA256);
-            if (id.HasValue)
+            byte[]? sha256 = null;
+            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetPropertyValue("checksums", out node))
             {
-                void AfterDownload(object? sender, int sendingId)
-                {
-                    if (id.Value != sendingId)
-                        return;
-                    FileDownloadHelper.TaskFinished -= AfterDownload;
-                    _version = version;
-                    _build = build;
-                    MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
-                    _versionInfo = versionInfo;
-                    if (propertyFilesLazy.IsValueCreated)
-                        PaperYMLFile = GetPaperConfigFile(versionInfo);
-                    OnServerVersionChanged();
-                }
-                FileDownloadHelper.TaskFinished += AfterDownload;
-                return true;
+                jsonObject = node as JsonObject;
+                if (jsonObject is not null && jsonObject.TryGetPropertyValue("sha256", out JsonNode? sha256Node) && 
+                    sha256Node is JsonValue sha256ValueNode && sha256ValueNode.GetValueKind() == JsonValueKind.String)
+                    sha256 = HashHelper.HexStringToByte(sha256ValueNode.GetValue<string>());
             }
-            return false;
+            watcher.Dispose();
+            void afterInstallFinished()
+            {
+                _version = version;
+                _build = build;
+                MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
+                _versionInfo = versionInfo;
+                if (propertyFilesLazy.IsValueCreated)
+                    PaperYMLFile = GetPaperConfigFile(versionInfo);
+                OnServerVersionChanged();
+            }
+            return FileDownloadHelper.AddTask(task: task, webClient: client,
+                downloadUrl: urlValueNode.GetValue<string>(),
+                filename: Path.Combine(ServerDirectory, $"paper-{version}.jar"),
+                hash: sha256, hashMethod: HashHelper.HashMethod.SHA256, afterInstalledAction: afterInstallFinished).HasValue;
         }
 
         /// <inheritdoc/>

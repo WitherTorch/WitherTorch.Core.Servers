@@ -1,6 +1,8 @@
 ﻿
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Software;
 using WitherTorch.Core.Utils;
@@ -29,7 +31,7 @@ namespace WitherTorch.Core.Servers
 
             public override BedrockDedicated? CreateServerInstance(string serverDirectory) => new BedrockDedicated(serverDirectory);
 
-            public override bool TryInitialize() => true;
+            public override Task<bool> TryInitializeAsync(CancellationToken cancellationToken) => Task.FromResult(true);
 
             private static string[] LoadVersionList()
             {

@@ -7,6 +7,8 @@ using System.Xml;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Software;
 using WitherTorch.Core.Utils;
+using System.Threading.Tasks;
+
 
 #if NET8_0_OR_GREATER
 using System.Collections.Frozen;
@@ -43,7 +45,7 @@ namespace WitherTorch.Core.Servers
 
             public override PowerNukkit? CreateServerInstance(string serverDirectory) => new PowerNukkit(serverDirectory);
 
-            public override bool TryInitialize() => true;
+            public override Task<bool> TryInitializeAsync(CancellationToken cancellationToken) => Task.FromResult(true);
 
             private static IReadOnlyDictionary<string, string> LoadVersionDictionary()
             {

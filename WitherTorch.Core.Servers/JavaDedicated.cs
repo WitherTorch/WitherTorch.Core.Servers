@@ -65,22 +65,11 @@ namespace WitherTorch.Core.Servers
             string? id = versionInfo.Id;
             if (id is null || id.Length <= 0)
                 return null;
-            InstallTask result = new InstallTask(this, id, async (task, token) =>
+            return new InstallTask(this, id, async (task, token) =>
             {
                 if (!await InstallServerCore(task, versionInfo, token))
                     task.OnInstallFailed();
             });
-            void onInstallFinished(object? sender, EventArgs e)
-            {
-                if (sender is not InstallTask senderTask || senderTask.Owner is not JavaDedicated server)
-                    return;
-                senderTask.InstallFinished -= onInstallFinished;
-                server._version = id;
-                server._versionInfo = versionInfo;
-                server.OnServerVersionChanged();
-            }
-            result.InstallFinished += onInstallFinished;
-            return result;
         }
 
         /// <inheritdoc/>
@@ -112,9 +101,15 @@ namespace WitherTorch.Core.Servers
             else
                 sha1 = null;
             watcher.Dispose();
+            void afterInstallFinished()
+            {
+                _version = versionInfo.Id ?? string.Empty;
+                _versionInfo = versionInfo;
+                OnServerVersionChanged();
+            }
             return FileDownloadHelper.AddTask(task: task, webClient: client, downloadUrl: ObjectUtils.ThrowIfNull(node).ToString(),
                 filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionInfo.Id + ".jar"),
-                hash: sha1, hashMethod: HashHelper.HashMethod.SHA1).HasValue;
+                hash: sha1, hashMethod: HashHelper.HashMethod.SHA1, afterInstalledAction: afterInstallFinished).HasValue;
         }
 
         /// <inheritdoc/>
