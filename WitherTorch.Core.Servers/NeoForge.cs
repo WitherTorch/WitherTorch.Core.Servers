@@ -18,8 +18,8 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public partial class NeoForge : JavaEditionServerBase
     {
-        private const string LegacyDownloadURL = "https://maven.neoforged.net/releases/net/neoforged/forge/{0}/forge-{0}-installer.jar";
-        private const string DownloadURL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/{0}/neoforge-{0}-installer.jar";
+        private const string LegacyDownloadURL = "{0}/net/neoforged/forge/{1}/forge-{1}-installer.jar";
+        private const string DownloadURL = "[0}/net/neoforged/neoforge/{1}/neoforge-{1}-installer.jar";
         private const string SoftwareId = "neoforge";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
@@ -93,17 +93,16 @@ namespace WitherTorch.Core.Servers
         {
             if (selectedVersion is null)
                 return false;
+            string sourceDomain = _software.AvailableSourceDomain;
             string version = selectedVersion.version;
-            if (string.IsNullOrEmpty(version))
-                return false;
             string versionRaw = selectedVersion.versionRaw;
-            if (string.IsNullOrEmpty(versionRaw))
+            if (string.IsNullOrEmpty(sourceDomain) || string.IsNullOrEmpty(version) || string.IsNullOrEmpty(versionRaw))
                 return false;
             string downloadURL;
             if (version.StartsWith(minecraftVersion.Substring(2)))
-                downloadURL = string.Format(DownloadURL, versionRaw);
+                downloadURL = string.Format(DownloadURL, sourceDomain, versionRaw);
             else //Use Legacy URL
-                downloadURL = string.Format(LegacyDownloadURL, versionRaw);
+                downloadURL = string.Format(LegacyDownloadURL, sourceDomain, versionRaw);
             string installerLocation = Path.Combine(ServerDirectory, $"neoforge-{versionRaw}-installer.jar");
             int? id = FileDownloadHelper.AddTask(task: task,
                 downloadUrl: downloadURL, filename: installerLocation,

@@ -36,18 +36,28 @@ namespace WitherTorch.Core.Servers
 
         private sealed class SoftwareContextPrivate : SoftwareContextBase<Forge>, IForgeLikeSoftwareSoftware
         {
-            private const string ManifestListURL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+            private const string MainSourceDomain = "https://maven.neoforged.net/releases";
+            private const string MirrorSourceDomain = "https://maven.creeperhost.net";
+            private const string ManifestListURL = "{0}/net/minecraftforge/forge/maven-metadata.xml";
 
-            private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>> _versionDictGroupLazy =
-                new Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>>(LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+            private static readonly string[] SourceDomains = [MainSourceDomain, MirrorSourceDomain];
+
+            private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>> _versionDictGroupLazy;
+            private int _sourceDomainIndex = 0;
 
             public IReadOnlyDictionary<string, ForgeVersionEntry[]> VersionDictionary
                 => _versionDictGroupLazy.Value.Result.Dictionary;
 
-            public SoftwareContextPrivate() : base(SoftwareId) { }
+            public string AvailableSourceDomain => _sourceDomainIndex < SourceDomains.Length ? SourceDomains[_sourceDomainIndex] : string.Empty;
+
+            public SoftwareContextPrivate() : base(SoftwareId)
+            {
+                _versionDictGroupLazy = new Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>>(
+                    LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+            }
 
             public override string[] GetSoftwareVersions()
-                => _versionDictGroupLazy.Value.Result.Keys;
+                    => _versionDictGroupLazy.Value.Result.Keys;
 
             public string[] GetForgeVersionsFromMinecraftVersion(string minecraftVersion)
             {
@@ -76,60 +86,80 @@ namespace WitherTorch.Core.Servers
                 return true;
             }
 
-            private static async Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>> LoadVersionDictionaryAsync()
+            private async Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>> LoadVersionDictionaryAsync()
             {
-                IReadOnlyDictionary<string, ForgeVersionEntry[]>? dict;
+                IReadOnlyDictionary<string, List<ForgeVersionEntry>>? dict;
+                StrongBox<int> preferredDomainIndexBox = new StrongBox<int>(0);
                 try
                 {
-                    dict = await LoadVersionDictionaryCoreAsync();
+                    dict = await LoadVersionDictionaryCoreAsync(preferredDomainIndexBox);
                 }
                 catch (Exception)
                 {
                     dict = null;
                 }
-                finally
-                {
-                    GC.Collect(2, GCCollectionMode.Optimized);
-                }
-                if (dict is null || dict.Count <= 0)
+
+                int sourceDomainIndex = preferredDomainIndexBox.Value;
+                _sourceDomainIndex = sourceDomainIndex;
+                if (sourceDomainIndex >= SourceDomains.Length)
                     return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
-                return new ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>(dict, static keys =>
-                {
-                    Array.Sort(keys, MojangAPI.VersionComparer.Instance);
-                    Array.Reverse(keys);
-                });
+
+                if (dict is null)
+                    return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
+
+                return new ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>(dict.ToDictionary(
+                    keySelector: val => val.Key,
+                    elementSelector: val => val.Value.ToArray()), static keys =>
+                    {
+                        Array.Sort(keys, MojangAPI.VersionComparer.Instance);
+                        Array.Reverse(keys);
+                    });
             }
 
-            private static async Task<IReadOnlyDictionary<string, ForgeVersionEntry[]>?> LoadVersionDictionaryCoreAsync()
+            private static async Task<IReadOnlyDictionary<string, List<ForgeVersionEntry>>?> LoadVersionDictionaryCoreAsync(StrongBox<int> preferredDomainIndexBox)
             {
-                string? manifestString = await CachedDownloadClient.Instance.DownloadStringAsync(ManifestListURL);
-                if (string.IsNullOrEmpty(manifestString))
+                string? manifestString = await DownloadStringFromDomains(SourceDomains, ManifestListURL, preferredDomainIndexBox);
+                if (!MavenManifestExtractor.TryEnumerateVersionsFromXml(manifestString, out string? latestVersion, out IEnumerable<string>? versions))
                     return null;
-                XmlDocument manifestXML = new XmlDocument();
-                manifestXML.LoadXml(manifestString);
-                Dictionary<string, List<ForgeVersionEntry>> dict = new Dictionary<string, List<ForgeVersionEntry>>();
-                XmlNodeList? nodes = manifestXML.SelectNodes("/metadata/versioning/versions/version");
-                if (nodes is null)
-                    return null;
-                foreach (XmlNode node in nodes)
+
+                Dictionary<string, List<ForgeVersionEntry>> result = new Dictionary<string, List<ForgeVersionEntry>>();
+                string? firstVersionString = null;
+                foreach (string versionString in versions)
                 {
-                    string versionString = node.InnerText;
-                    if (versionString is null)
-                        continue;
+                    if (firstVersionString is null)
+                        firstVersionString = versionString;
                     string[] versionSplits = versionString.Split('-');
                     string version = VersionStringHelper.ReplaceOnce(versionSplits[0], '_', '-').Replace(".0", string.Empty);
-                    if (!dict.TryGetValue(version, out List<ForgeVersionEntry>? historyVersionList))
-                        dict.Add(version, historyVersionList = new List<ForgeVersionEntry>());
+                    if (!result.TryGetValue(version, out List<ForgeVersionEntry>? historyVersionList))
+                        result.Add(version, historyVersionList = new List<ForgeVersionEntry>());
                     historyVersionList.Add(new ForgeVersionEntry(versionSplits[1], versionString));
                 }
 
-                Dictionary<string, ForgeVersionEntry[]> result = new Dictionary<string, ForgeVersionEntry[]>(dict.Count);
-                foreach (var pair in dict)
+                if (!latestVersion.Equals(firstVersionString)) // 如果最新版本不在版本列表最前面的話，就把結果倒置
                 {
-                    result.Add(pair.Key, pair.Value.ToArray());
+                    foreach (List<ForgeVersionEntry> historyVersionList in result.Values)
+                        historyVersionList.Reverse();
                 }
-
                 return result;
+            }
+
+            private static async Task<string?> DownloadStringFromDomains(string[] domains, string urlFormat, StrongBox<int> indexRecorder)
+            {
+                int index = indexRecorder.Value;
+                int length = domains.Length;
+                if (index >= length)
+                    return null;
+                for (; index < length; index++)
+                {
+                    string? result = await CachedDownloadClient.Instance.DownloadStringAsync(string.Format(urlFormat, domains[index]));
+                    if (result is not null)
+                    {
+                        indexRecorder.Value = index;
+                        return result;
+                    }
+                }
+                indexRecorder.Value = length;
+                return null;
             }
         }
     }

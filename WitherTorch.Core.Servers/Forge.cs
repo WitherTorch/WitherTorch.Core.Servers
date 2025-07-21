@@ -19,7 +19,7 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public partial class Forge : JavaEditionServerBase
     {
-        private const string DownloadURLPrefix = "https://maven.minecraftforge.net/net/minecraftforge/forge/";
+        private const string DownloadURLPrefix = "{0}/net/minecraftforge/forge/";
         private const string SoftwareId = "forge";
 
         private static readonly ThreadLocal<StringBuilder> localStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
@@ -102,17 +102,15 @@ namespace WitherTorch.Core.Servers
         {
             if (selectedVersion is null)
                 return false;
+            string sourceDomain = _software.AvailableSourceDomain;
             string version = selectedVersion.version;
-            if (string.IsNullOrEmpty(version))
-                return false;
             string versionRaw = selectedVersion.versionRaw;
-            if (string.IsNullOrEmpty(versionRaw))
+            if (string.IsNullOrEmpty(sourceDomain) || string.IsNullOrEmpty(version) || string.IsNullOrEmpty(versionRaw))
                 return false;
-
             bool needInstall;
             string downloadURL;
             StringBuilder URLBuilder = ObjectUtils.ThrowIfNull(localStringBuilder.Value);
-            URLBuilder.Append(DownloadURLPrefix);
+            URLBuilder.AppendFormat(DownloadURLPrefix, sourceDomain);
             MojangAPI.VersionInfo? info = FindVersionInfo(minecraftVersion);
             if (info is null)
                 return false;

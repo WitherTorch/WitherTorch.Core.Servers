@@ -42,6 +42,10 @@
 		<PackageReference Include="YamlDotNet" Version="16.3.0" />
 	</ItemGroup>
 
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+		<PackageReference Include="Umbani.CompilerServices" Version="1.0.1" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<ProjectReference Include="$(SolutionDir)\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
 	</ItemGroup>
