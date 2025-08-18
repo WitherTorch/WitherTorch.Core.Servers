@@ -19,7 +19,7 @@ namespace WitherTorch.Core.Servers
     public partial class NeoForge : JavaEditionServerBase
     {
         private const string LegacyDownloadURL = "{0}/net/neoforged/forge/{1}/forge-{1}-installer.jar";
-        private const string DownloadURL = "[0}/net/neoforged/neoforge/{1}/neoforge-{1}-installer.jar";
+        private const string DownloadURL = "{0}/net/neoforged/neoforge/{1}/neoforge-{1}-installer.jar";
         private const string SoftwareId = "neoforge";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
