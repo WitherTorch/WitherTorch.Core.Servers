@@ -1,12 +1,11 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Globalization;
-using System.Linq;
+﻿using System.Collections.Generic;
 
 #if NET8_0_OR_GREATER
 using System.Collections.Immutable;
 using System.Collections.Frozen;
+#else
+using System;
+using System.Collections;
 #endif
 
 namespace WitherTorch.Core.Servers.Utils
@@ -31,16 +30,18 @@ namespace WitherTorch.Core.Servers.Utils
         {
             public TValue this[TKey key] => throw new KeyNotFoundException();
 
-            public IEnumerable<TKey> Keys => Enumerable.Empty<TKey>();
+            public IEnumerable<TKey> Keys => Array.Empty<TKey>();
 
-            public IEnumerable<TValue> Values => Enumerable.Empty<TValue>();
+            public IEnumerable<TValue> Values => Array.Empty<TValue>();
 
             public int Count => 0;
 
             public bool ContainsKey(TKey key) => false;
 
-            public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() 
-                => Enumerable.Empty<KeyValuePair<TKey, TValue>>().GetEnumerator();
+            public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+            {
+                yield break;
+            }
 
 #pragma warning disable CS8601
             public bool TryGetValue(TKey key, out TValue value)
@@ -50,9 +51,10 @@ namespace WitherTorch.Core.Servers.Utils
             }
 #pragma warning restore CS8601
 
-            IEnumerator IEnumerable.GetEnumerator() 
-                => Enumerable.Empty<KeyValuePair<TKey, TValue>>().GetEnumerator();
-
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                yield break;
+            }
         }
 #endif
     }

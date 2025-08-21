@@ -50,9 +50,9 @@ namespace WitherTorch.Core.Servers
         /// </summary>
         /// <param name="version">要查找的版本號</param>
         /// <returns></returns>
-        protected static MojangAPI.VersionInfo? FindVersionInfo(string version)
+        protected static async Task<MojangAPI.VersionInfo?> FindVersionInfoAsync(string version)
         {
-            if (MojangAPI.VersionDictionary.TryGetValue(version, out MojangAPI.VersionInfo? result))
+            if ((await MojangAPI.GetVersionDictionaryAsync()).TryGetValue(version, out MojangAPI.VersionInfo? result))
                 return result;
             return null;
         }

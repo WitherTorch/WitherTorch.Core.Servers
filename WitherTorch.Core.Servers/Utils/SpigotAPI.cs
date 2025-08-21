@@ -16,40 +16,45 @@ namespace WitherTorch.Core.Servers.Utils
     {
         private const string manifestListURL = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/maven-metadata.xml";
         private const string manifestListURL2 = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/{0}/maven-metadata.xml";
-        private static readonly Lazy<IReadOnlyDictionary<string, string>> _versionDictLazy =
-            new Lazy<IReadOnlyDictionary<string, string>>(LoadVersionDictionary, LazyThreadSafetyMode.ExecutionAndPublication);
-        private static readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(
-            () => _versionDictLazy.Value.ToKeyArray(MojangAPI.VersionComparer.Instance.Reverse()),
-            LazyThreadSafetyMode.ExecutionAndPublication);
+
+        private static readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, string>>> _versionDictKeyGroupLazy =
+            new(LoadVersionDictionaryKeyGroupAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
         /// <summary>
         /// 取得 SpigotMC 的版本資料庫
         /// </summary>
-        public static IReadOnlyDictionary<string, string> VersionDictionary => _versionDictLazy.Value;
+        public static async Task<IReadOnlyDictionary<string, string>> GetVersionDictionaryAsync()
+            => (await _versionDictKeyGroupLazy.Value.ConfigureAwait(false)).Dictionary;
 
         /// <summary>
         /// 取得 SpigotMC 的版本列表
         /// </summary>
-        public static string[] Versions => _versionsLazy.Value;
+        public static async Task<IReadOnlyList<string>> GetVersionsAsync()
+            => (await _versionDictKeyGroupLazy.Value.ConfigureAwait(false)).Keys;
 
-        private static IReadOnlyDictionary<string, string> LoadVersionDictionary()
+        private static async Task<ReadOnlyDictionaryKeyGroup<string, string>> LoadVersionDictionaryKeyGroupAsync()
         {
+            Dictionary<string, string>? dict;
             try
             {
-                return LoadVersionDictionaryCore() ?? EmptyDictionary<string, string>.Instance;
+                dict = await LoadVersionDictionaryAsync();
             }
             catch (Exception)
             {
+                dict = null;
             }
-            return EmptyDictionary<string, string>.Instance;
+            if (dict is null || dict.Count <= 0)
+                return ReadOnlyDictionaryKeyGroup<string, string>.Empty;
+            return ReadOnlyDictionaryKeyGroup.Create(dict,
+                static (keys) => Array.Sort(keys, MojangAPI.VersionComparer.Instance.Reverse()));
         }
 
-        private static IReadOnlyDictionary<string, string>? LoadVersionDictionaryCore()
+        private static async ValueTask<Dictionary<string, string>?> LoadVersionDictionaryAsync()
         {
             CachedDownloadClient client = CachedDownloadClient.Instance;
             HttpClient innerClient = client.InnerHttpClient;
             innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Constants.UserAgent);
-            string? manifestString = client.DownloadString(manifestListURL);
+            string? manifestString = await client.DownloadStringAsync(manifestListURL);
             innerClient.DefaultRequestHeaders.Remove("User-Agent");
             if (string.IsNullOrEmpty(manifestString))
                 return null;
@@ -76,36 +81,23 @@ namespace WitherTorch.Core.Servers.Utils
                 result.Add(version, versionString);
             }
 
-            return result.AsReadOnlyDictionary();
+            return result;
         }
+
+        /// <inheritdoc cref="GetBuildNumberAsync(string, CancellationToken)"/>
+        public static ValueTask<int> GetBuildNumberAsync(string version)
+            => GetBuildNumberAsync(version, CancellationToken.None);
 
         /// <summary>
         /// 取得與指定的 Minecraft 版本相關聯的 Spigot 組建編號
         /// </summary>
         /// <param name="version">要查詢的 Minecraft 版本</param>
-        /// <returns></returns>
-        public static int GetBuildNumber(string version)
+        /// <param name="token">用於控制非同步操作是否取消的 <see cref="CancellationToken"/> 結構</param>
+        /// <returns>與對應的 Minecraft 相關聯的組建標號，如果沒找到的話則會傳回 <see langword="-1"/></returns>
+        public static async ValueTask<int> GetBuildNumberAsync(string version, CancellationToken token)
         {
-            if (!VersionDictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
-                return -1;
-            try
-            {
-                return GetBuildNumberCoreAsync(string.Format(manifestListURL2, result), CancellationToken.None).Result;
-            }
-            catch (Exception)
-            {
-            }
-            return -1;
-        }
-
-        /// <inheritdoc cref="GetBuildNumber(string)"/>
-        public static Task<int> GetBuildNumberAsync(string version)
-            => GetBuildNumberAsync(version, CancellationToken.None);
-
-        /// <inheritdoc cref="GetBuildNumber(string)"/>
-        public static async Task<int> GetBuildNumberAsync(string version, CancellationToken token)
-        {
-            if (!VersionDictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
+            ReadOnlyDictionaryKeyGroup<string, string> keyGroup = await _versionDictKeyGroupLazy.Value.ConfigureAwait(continueOnCapturedContext: false);
+            if (!keyGroup.Dictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
                 return -1;
             try
             {
@@ -117,7 +109,7 @@ namespace WitherTorch.Core.Servers.Utils
             return -1;
         }
 
-        private static async Task<int> GetBuildNumberCoreAsync(string url, CancellationToken token)
+        private static async ValueTask<int> GetBuildNumberCoreAsync(string url, CancellationToken token)
         {
             string manifestString;
             using (HttpClient client = new HttpClient())

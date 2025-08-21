@@ -2,6 +2,7 @@
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Runtime;
@@ -52,32 +53,24 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
-            if (string.IsNullOrWhiteSpace(version))
+            if (string.IsNullOrEmpty(version))
                 return null;
-            return new InstallTask(this, version, (task, token) =>
-            {
-                string fullVersionString = _software.QueryFullVersionString(version);
-                if (string.IsNullOrWhiteSpace(fullVersionString) || token.IsCancellationRequested)
-                {
-                    task.OnInstallFailed();
-                    return;
-                }
-                if (!InstallServerCore(task, version, fullVersionString))
-                    task.OnInstallFailed();
-            });
+            return new InstallTask(this, version, StartInstallServerTaskAsync);
         }
 
-        private bool InstallServerCore(InstallTask task, string version, string fullVersionString)
+        private async ValueTask<bool> StartInstallServerTaskAsync(InstallTask task, CancellationToken token)
         {
-            void afterInstallFinished()
-            {
-                _version = version;
-                OnServerVersionChanged();
-            }
-            return FileDownloadHelper.AddTask(task: task,
-                downloadUrl: string.Format(DownloadURL, fullVersionString),
-                filename: Path.Combine(ServerDirectory, @"powernukkit-" + version + ".jar"),
-                afterInstalledAction: afterInstallFinished).HasValue;
+            string version = task.Version;
+            string? fullVersionString = await _software.QueryFullVersionStringAsync(version);
+            if (fullVersionString is null || !await FileDownloadHelper.DownloadFileAsync(task,
+                sourceAddress: string.Format(DownloadURL, fullVersionString),
+                targetFilename: Path.GetFullPath(Path.Combine(ServerDirectory, $"powernukkit-{version}.jar")),
+                cancellationToken: token))
+                return false;
+            _version = version;
+            Thread.MemoryBarrier();
+            OnServerVersionChanged();
+            return true;
         }
 
         /// <inheritdoc/>

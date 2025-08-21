@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 #if NET8_0_OR_GREATER
@@ -39,11 +40,11 @@ public static partial class MojangAPI
 
             int IComparable<string>.CompareTo(string? other)
             {
-                if (other is null) return 0;
-                else if (VersionDictionary.ContainsKey(other))
-                {
-                    return ReleaseTime.CompareTo(VersionDictionary[other].ReleaseTime);
-                }
+                if (other is null) 
+                    return 0;
+                IReadOnlyDictionary<string, VersionInfo> dict = GetVersionDictionaryAsync().Result;
+                if (dict.ContainsKey(other))
+                    return ReleaseTime.CompareTo(dict[other].ReleaseTime);
                 return 0;
             }
 

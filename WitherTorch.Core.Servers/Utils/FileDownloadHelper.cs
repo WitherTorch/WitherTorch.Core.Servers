@@ -1,128 +1,112 @@
 ﻿using System;
-using System.Collections.Concurrent;
-using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 using WitherTorch.Core.Utils;
 
-using static WitherTorch.Core.Utils.WebClient2;
+using YamlDotNet.Core.Tokens;
 
 namespace WitherTorch.Core.Servers.Utils
 {
     /// <summary>
-    /// 簡易的下載工具類別，可自動校驗雜湊和處理 InstallTask 上的校驗失敗處理
+    /// 簡易的下載工具類別，可自動校驗雜湊和處理 <see cref="InstallTask"/> 上的校驗失敗處理
     /// </summary>
-    internal static class FileDownloadHelper
+    internal static partial class FileDownloadHelper
     {
-        private sealed class DownloadInfo : IDisposable
+        public static async ValueTask<bool> DownloadFileAsync(InstallTask task, string sourceAddress, string targetFilename,
+            CancellationToken cancellationToken, WebClient2? webClient = null,
+            double initPercentage = 0.0, double percentageMultiplier = 1.0,
+            byte[]? hash = null, HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None)
         {
-            private bool disposedValue;
-
-            private readonly bool disposeWebClientAfterUsed;
-
-            public int FlowNumber { get; }
-
-            public InstallTask Task { get; }
-
-            public WebClient2 WebClient { get; }
-
-            public DownloadStatus Status { get; }
-
-            public Uri DownloadUrl { get; }
-
-            public string FileName { get; }
-
-            public string? TempFileName { get; set; }
-
-            public double InitialPercentage { get; }
-
-            public double PercentageMultiplier { get; }
-
-            public HashHelper.HashMethod HashMethod { get; }
-
-            public byte[]? ExceptedHash { get; }
-
-            public Action? AfterInstalledAction { get; }
-
-            public DownloadInfo(int flowNumber, InstallTask task, WebClient2? webClient, Uri downloadUrl, string fileName,
-                double initialPercentage, double percentageMultiplier, HashHelper.HashMethod hashMethod, byte[]? hashes, Action? afterInstalledAction,
-                bool disposeWebClientAfterUsed)
+            if (hashMethod < HashHelper.HashMethod.None || hashMethod > HashHelper.HashMethod.SHA256)
+                throw new ArgumentOutOfRangeException(nameof(hashMethod));
+            if (!Uri.TryCreate(sourceAddress, UriKind.Absolute, out Uri? sourceUri) || cancellationToken.IsCancellationRequested)
+                return false;
+            DownloadFileClosure closure = new DownloadFileClosure(initPercentage, percentageMultiplier);
+            string tempFileName = GetTempFileName(targetFilename);
+            bool needDisposeWebClient;
+            if (webClient is null)
             {
-                FlowNumber = flowNumber;
-                Task = task;
-                if (webClient is null)
-                {
-                    WebClient = new WebClient2();
-                    this.disposeWebClientAfterUsed = true;
-                }
-                else
-                {
-                    WebClient = webClient;
-                    this.disposeWebClientAfterUsed = disposeWebClientAfterUsed;
-                }
-                DownloadUrl = downloadUrl;
-                FileName = fileName;
-                InitialPercentage = initialPercentage;
-                Status = new DownloadStatus(downloadUrl.ToString());
-                PercentageMultiplier = percentageMultiplier;
-                HashMethod = hashes is null ? HashHelper.HashMethod.None : hashMethod;
-                ExceptedHash = hashMethod > HashHelper.HashMethod.None ? hashes : null;
-                AfterInstalledAction = afterInstalledAction;
+                webClient = new WebClient2();
+                needDisposeWebClient = true;
             }
-
-            private void Dispose(bool disposing)
+            else
             {
-                if (!disposedValue)
+                needDisposeWebClient = false;
+            }
+            try
+            {
+                if (!await DownloadFileCoreAsync(task, webClient, sourceUri, tempFileName, closure) || cancellationToken.IsCancellationRequested)
+                    return false;
+                if (hash is not null && hashMethod != HashHelper.HashMethod.None)
                 {
-                    if (disposing && disposeWebClientAfterUsed)
+                    do
                     {
-                        WebClient.Dispose();
-                    }
-                    disposedValue = true;
+                        byte[] actualHash;
+                        using (FileStream stream = new FileStream(tempFileName, FileMode.Open, FileAccess.Read, FileShare.Read))
+                            actualHash = HashHelper.ComputeHash(stream, hashMethod);
+                        if (HashHelper.ByteArrayEquals(hash, actualHash))
+                            break;
+                        bool ignoreHashMismatch;
+                        switch (task.OnValidateFailed(tempFileName, actualHash, hash))
+                        {
+                            case ValidateFailedState.Ignore:
+                                ignoreHashMismatch = true;
+                                break;
+                            case ValidateFailedState.Retry:
+                                ignoreHashMismatch = false;
+                                break;
+                            default:
+                                return false;
+                        }
+                        if (cancellationToken.IsCancellationRequested)
+                            return false;
+                        if (ignoreHashMismatch)
+                            break;
+                        File.Delete(tempFileName);
+                        if (!await DownloadFileCoreAsync(task, webClient, sourceUri, tempFileName, closure) || cancellationToken.IsCancellationRequested)
+                            return false;
+                    } while (true);
                 }
+                MoveFile(tempFileName, targetFilename);
             }
-
-            public void Dispose()
+            finally
             {
-                Dispose(disposing: true);
-                GC.SuppressFinalize(this);
+                File.Delete(tempFileName);
+                if (needDisposeWebClient)
+                    webClient.Dispose();
             }
+            return !cancellationToken.IsCancellationRequested;
         }
 
-        private static volatile int flowNumber = 0;
-
-        private static readonly ConcurrentDictionary<int, DownloadInfo> _dict = new ConcurrentDictionary<int, DownloadInfo>();
-
-        private static readonly ConcurrentDictionary<InstallTask, DownloadInfo> _dict2 = new ConcurrentDictionary<InstallTask, DownloadInfo>();
-
-        private static readonly ThreadLocal<StringBuilder> localStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
-
-        public static event EventHandler<int>? TaskFinished;
-
-        public static event EventHandler<int>? TaskFailed;
-
-        public static int? AddTask(InstallTask task, string downloadUrl, string filename, WebClient2? webClient = null,
-            double initPercentage = 0.0, double percentageMultiplier = 1.0, byte[]? hash = null,
-            HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None, Action? afterInstalledAction = null,
-            bool disposeWebClientAfterUsed = true)
+        private static async ValueTask<bool> DownloadFileCoreAsync(InstallTask task, WebClient2 webClient, Uri sourceUri, string targetFilename, DownloadFileClosure closure)
         {
-            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadUri))
-                return null;
-            initPercentage = Math.Max(Math.Min(initPercentage, 100.0), 0.0);
-            percentageMultiplier = Math.Max(Math.Min(percentageMultiplier, (100.0 - initPercentage) / 100.0), 0.0);
-            int flowNumber = Interlocked.Increment(ref FileDownloadHelper.flowNumber);
-            DownloadInfo info = new DownloadInfo(flowNumber, task, webClient, downloadUri, filename, initPercentage,
-                percentageMultiplier, hashMethod, hash, afterInstalledAction, disposeWebClientAfterUsed);
-            Task.Factory.StartNew((obj) => StartTask(obj as DownloadInfo), info, TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach).ConfigureAwait(false);
-            return flowNumber;
+            DownloadStatus status = new DownloadStatus(sourceUri.AbsoluteUri);
+            task.ChangePercentage(closure.InitialPercentage);
+            task.ChangeStatus(status);
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, webClient);
+            closure.SubscribeEvents(webClient);
+            try
+            {
+                webClient.DownloadFileAsync(sourceUri, targetFilename, watcher);
+                if (!await watcher.WaitUtilFinishedAsync())
+                    return false;
+                status.Percentage = 100.0;
+                task.ChangePercentage(closure.GetAdjustedPercentage(100.0));
+                return true;
+            }
+            finally
+            {
+                closure.UnsubscribeEvents(webClient);
+            }
         }
 
         private static string GetTempFileName(string filename)
         {
-            StringBuilder builder = ObjectUtils.ThrowIfNull(localStringBuilder.Value);
+            StringBuilder builder = ThreadLocalObjects.StringBuilder;
             builder.EnsureCapacity(filename.Length + 5);
             builder.Append(filename);
             builder.Append(".tmp");
@@ -141,256 +125,29 @@ namespace WitherTorch.Core.Servers.Utils
             return result;
         }
 
-        private static void StartTask(DownloadInfo? info)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void MoveFile(string sourceFilename, string targetFilename)
         {
-            if (info is null || !_dict.TryAdd(info.FlowNumber, info))
-                return;
-
-            InstallTask task = info.Task;
-            WebClient2 webClient = info.WebClient;
-            DownloadStatus status = info.Status;
-
-            string tempFileName = info.TempFileName = GetTempFileName(info.FileName);
-
-            if (_dict2.TryAdd(task, info))
-                task.StopRequested += InstallTask_StopRequested;
-
-            webClient.DownloadProgressChanged += WebClient_DownloadProgressChanged;
-            webClient.DownloadFileCompleted += WebClient_DownloadFileCompleted;
-
-            status.Percentage = 0;
-            task.ChangeStatus(status);
-            task.ChangePercentage(info.InitialPercentage);
-
-            webClient.DownloadFileAsync(info.DownloadUrl, tempFileName, info);
-        }
-
-        private static void RestartTask(DownloadInfo info)
-        {
-            if (info is null)
-                return;
-
-            string tempFileName = ObjectUtils.ThrowIfNull(info.TempFileName);
-            if (File.Exists(tempFileName))
-            {
-                try
-                {
-                    File.Delete(tempFileName);
-                }
-                catch (Exception)
-                {
-                }
-            }
-
-            InstallTask task = info.Task;
-            WebClient2 webClient = info.WebClient;
-            DownloadStatus status = info.Status;
-
-            status.Percentage = 0;
-            task.ChangeStatus(status);
-            task.ChangePercentage(info.InitialPercentage);
-
-            webClient.DownloadFileAsync(info.DownloadUrl, tempFileName, info);
-        }
-
-        private static void EndTask(DownloadInfo? info, bool failed)
-        {
-            if (info is null)
-                return;
-
-            InstallTask task = info.Task;
-            WebClient2 webClient = info.WebClient;
-
-            if (_dict2.TryRemove(task, out _))
-                task.StopRequested -= InstallTask_StopRequested;
-
-            webClient.DownloadProgressChanged -= WebClient_DownloadProgressChanged;
-            webClient.DownloadFileCompleted -= WebClient_DownloadFileCompleted;
-            webClient.CancelAsync();
-
-            if (_dict.TryRemove(info.FlowNumber, out _))
-                info.Dispose();
-
-            string tempFileName = ObjectUtils.ThrowIfNull(info.TempFileName);
-            if (failed)
-            {
-                if (File.Exists(tempFileName))
-                {
-                    try
-                    {
-                        File.Delete(tempFileName);
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
-                task.OnInstallFailed();
-                TaskFailed?.Invoke(null, info.FlowNumber);
-            }
-            else
-            {
-                string fileName = info.FileName;
-                if (!string.Equals(fileName, tempFileName, StringComparison.OrdinalIgnoreCase))
-                {
-#if NET5_0_OR_GREATER
-                    try
-                    {
-                        File.Move(tempFileName, fileName, true);
-                    }
-                    catch (Exception)
-                    {
-                    }
+            StringComparison comparison
+#if NET8_0_OR_GREATER
+                = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 #else
-                    if (File.Exists(fileName))
-                    {
-                        try
-                        {
-                            File.Delete(fileName);
-                        }
-                        catch (Exception)
-                        {
-                        }
-                    }
-                    try
-                    {
-                        File.Move(tempFileName, fileName);
-                    }
-                    catch (Exception)
-                    {
-                    }
-#endif
-                }
-                info.AfterInstalledAction?.Invoke();
-                TaskFinished?.Invoke(null, info.FlowNumber);
-                if (task.InstallPercentage >= 100.0)
-                    task.OnInstallFinished();
-            }
-        }
-
-        private static void InstallTask_StopRequested(object? sender, EventArgs e)
-        {
-            if (sender is InstallTask task && _dict2.TryRemove(task, out DownloadInfo? info))
-            {
-                task.StopRequested -= InstallTask_StopRequested;
-                EndTask(info, true);
-            }
-        }
-
-        private static void WebClient_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
-        {
-            if (e.UserState is not DownloadInfo info)
-                return;
-
-            DownloadStatus status = info.Status;
-            InstallTask task = info.Task;
-
-            double percentage = e.ProgressPercentage,
-                initPercentage = info.InitialPercentage,
-                percentageMultiplier = info.PercentageMultiplier;
-
-            status.Percentage = percentage;
-
-            if (percentageMultiplier < 1.0)
-                percentage *= percentageMultiplier;
-            if (initPercentage > 0)
-                task.ChangePercentage(initPercentage + percentage);
-            else
-                task.ChangePercentage(percentage);
-        }
-
-        private static void WebClient_DownloadFileCompleted(object? sender, AsyncCompletedEventArgs e)
-        {
-            if (e.UserState is not DownloadInfo info)
-                return;
-
-            DownloadStatus status = info.Status;
-            InstallTask task = info.Task;
-            HashHelper.HashMethod hashMethod = info.HashMethod;
-
-            double percentage = 100.0,
-                initPercentage = info.InitialPercentage,
-                percentageMultiplier = info.PercentageMultiplier;
-
-            status.Percentage = percentage;
-
-            if (percentageMultiplier < 1.0)
-                percentage *= percentageMultiplier;
-            if (initPercentage > 0)
-                task.ChangePercentage(initPercentage + percentage);
-            else
-                task.ChangePercentage(percentage);
-
-            if (e.Error is not null || e.Cancelled)
-            {
-                Task.Factory.StartNew((obj) => EndTask(obj as DownloadInfo, failed: true), info,
-                    TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach)
-                    .ConfigureAwait(false); ;
-                return;
-            }
-
-            string filename = info.FileName;
-            string? tempFilename = info.TempFileName;
-            byte[]? exceptedHash = info.ExceptedHash;
-            byte[]? actualHash;
-
-            switch (hashMethod)
-            {
-                case HashHelper.HashMethod.None:
-                    Task.Factory.StartNew((obj) => EndTask(obj as DownloadInfo, failed: false), info,
-                        TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach)
-                        .ConfigureAwait(false); ;
-                    return;
-                case HashHelper.HashMethod.MD5:
-                case HashHelper.HashMethod.SHA1:
-                case HashHelper.HashMethod.SHA256:
-                    task.ChangeStatus(new ValidatingStatus(filename));
-                    try
-                    {
-                        using FileStream stream = File.Open(ObjectUtils.ThrowIfNull(tempFilename), FileMode.Open, FileAccess.Read, FileShare.Read);
-                        actualHash = HashHelper.ComputeHash(stream, hashMethod);
-                    }
-                    catch (Exception)
-                    {
-                        actualHash = null;
-                    }
-                    break;
-                default:
-                    goto case HashHelper.HashMethod.None;
-            }
-
-            if (HashHelper.ByteArrayEquals(exceptedHash, actualHash))
-            {
-                Task.Factory.StartNew((obj) => EndTask(obj as DownloadInfo, failed: false), info,
-                    TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach)
-                    .ConfigureAwait(false); ;
-            }
-            else
-            {
-                Task.Factory.StartNew((obj) =>
+                = Environment.OSVersion.Platform switch
                 {
-                    if (obj is not Tuple<DownloadInfo, byte[]> tuple)
-                        return;
-
-                    DownloadInfo _info = tuple.Item1;
-                    InstallTask _task = _info.Task;
-                    string _tempFilename = ObjectUtils.ThrowIfNull(_info.TempFileName);
-                    byte[] _actualHash = tuple.Item2;
-                    byte[] _exceptedHash = ObjectUtils.ThrowIfNull(_info.ExceptedHash);
-
-                    switch (_task.OnValidateFailed(_tempFilename, _actualHash, _exceptedHash))
-                    {
-                        case InstallTask.ValidateFailedState.Cancel:
-                            EndTask(_info, failed: true);
-                            return;
-                        case InstallTask.ValidateFailedState.Ignore:
-                            EndTask(_info, failed: false);
-                            return;
-                        case InstallTask.ValidateFailedState.Retry:
-                            RestartTask(_info);
-                            return;
-                    }
-                }, Tuple.Create(info, actualHash), TaskCreationOptions.PreferFairness | TaskCreationOptions.DenyChildAttach).ConfigureAwait(false);
-            }
+                    PlatformID.Win32S or PlatformID.Win32Windows or
+                    PlatformID.Win32NT or PlatformID.WinCE or
+                    PlatformID.Xbox => StringComparison.OrdinalIgnoreCase,
+                    _ => StringComparison.Ordinal
+                };
+#endif
+            if (string.Equals(sourceFilename, targetFilename, comparison))
+                return;
+#if NET8_0_OR_GREATER
+            File.Move(sourceFilename, targetFilename, overwrite: true);
+#else            
+            File.Delete(targetFilename);
+            File.Move(sourceFilename, targetFilename);
+#endif
         }
     }
 }

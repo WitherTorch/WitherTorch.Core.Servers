@@ -9,8 +9,6 @@ using System.Threading.Tasks;
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Servers.Utils;
 
-using YamlDotNet.Core;
-
 namespace WitherTorch.Core.Servers
 {
     /// <summary>
@@ -58,22 +56,7 @@ namespace WitherTorch.Core.Servers
         {
             if (string.IsNullOrWhiteSpace(version))
                 return null;
-            return new InstallTask(this, version,
-                (task, token) =>
-                {
-                    if (token.IsCancellationRequested)
-                    {
-                        task.OnInstallFailed();
-                        return;
-                    }
-                    string fabricLoaderVersion = _software.GetLatestStableFabricLoaderVersionAsync().Result;
-                    if (string.IsNullOrWhiteSpace(fabricLoaderVersion) || token.IsCancellationRequested)
-                    {
-                        task.OnInstallFailed();
-                        return;
-                    }    
-                    FabricInstaller.Instance.Install(task, version, fabricLoaderVersion, CallWhenInstallerFinished);
-                });
+            return new InstallTask(this, version, RunInstallServerTaskAsync);
         }
 
         /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
@@ -84,23 +67,29 @@ namespace WitherTorch.Core.Servers
             if (string.IsNullOrWhiteSpace(minecraftVersion) || string.IsNullOrWhiteSpace(fabricLoaderVersion))
                 return null;
             return new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion,
-                (task, token) =>
-                {
-                    if (token.IsCancellationRequested)
-                    {
-                        task.OnInstallFailed();
-                        return;
-                    }
-                    FabricInstaller.Instance.Install(task, minecraftVersion, fabricLoaderVersion, CallWhenInstallerFinished);
-                });
+                (task, token) => RunInstallServerTaskCoreAsync(task, minecraftVersion, fabricLoaderVersion, token));
         }
 
-        private void CallWhenInstallerFinished(string minecraftVersion, string fabricLoaderVersion)
+        private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
         {
+            string minecraftVersion = task.Version;
+            string? fabricLoaderVersion = await _software.GetLatestStableFabricLoaderVersionAsync(token);
+            if (string.IsNullOrEmpty(fabricLoaderVersion))
+                return false;
+            return await RunInstallServerTaskCoreAsync(task, minecraftVersion, fabricLoaderVersion!, token);
+        }
+
+        private async ValueTask<bool> RunInstallServerTaskCoreAsync(InstallTask task, string minecraftVersion, string fabricLoaderVersion, CancellationToken token)
+        {
+            MojangAPI.VersionInfo? versionInfo = await FindVersionInfoAsync(minecraftVersion);
+            if (versionInfo is null || !await FabricInstaller.InstallAsync(task, minecraftVersion, fabricLoaderVersion, token))
+                return false;
             _minecraftVersion = minecraftVersion;
             _fabricLoaderVersion = fabricLoaderVersion;
-            _versionInfo = null;
+            _versionInfo = versionInfo;
+            Thread.MemoryBarrier();
             OnServerVersionChanged();
+            return true;
         }
 
         /// <inheritdoc/>
@@ -133,7 +122,7 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
-            return FindVersionInfo(_minecraftVersion);
+            return FindVersionInfoAsync(_minecraftVersion).Result;
         }
 
         /// <inheritdoc/>

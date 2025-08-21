@@ -51,7 +51,7 @@ public static partial class MojangAPI
             private VersionComparer() { }
 
             /// <inheritdoc/>
-            public int Compare(string? x, string? y) => InternalVersionComparer.Compare(VersionDictionary, x, y);
+            public int Compare(string? x, string? y) => InternalVersionComparer.Compare(GetVersionDictionaryAsync().Result, x, y);
         }
     }
 }

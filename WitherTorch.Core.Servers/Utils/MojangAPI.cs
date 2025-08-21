@@ -23,14 +23,14 @@ namespace WitherTorch.Core.Servers.Utils
         /// <summary>
         /// 取得 Minecraft: Java Edition 的版本資料庫
         /// </summary>
-        public static IReadOnlyDictionary<string, VersionInfo> VersionDictionary 
-            => _versionDictGroupLazy.Value.Result.Dictionary;
+        public static async Task<IReadOnlyDictionary<string, VersionInfo>> GetVersionDictionaryAsync()
+            => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Dictionary;
 
         /// <summary>
         /// 取得 Minecraft: Java Edition 的版本列表
         /// </summary>
-        public static string[] Versions 
-            => _versionDictGroupLazy.Value.Result.Keys;
+        public static async Task<IReadOnlyList<string>> GetVersionsAsync()
+            => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Keys;
 
         /// <summary>
         /// 初始化 API 的功能
@@ -60,7 +60,7 @@ namespace WitherTorch.Core.Servers.Utils
             }
             if (dict is null || dict.Count <= 0)
                 return ReadOnlyDictionaryKeyGroup<string, VersionInfo>.Empty;
-            return new ReadOnlyDictionaryKeyGroup<string, VersionInfo>(dict, static (dict, keys) =>
+            return ReadOnlyDictionaryKeyGroup.Create(dict, static (dict, keys) =>
             {
                 Array.Sort(keys, new InternalVersionComparer(dict));
                 Array.Reverse(keys);

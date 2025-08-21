@@ -1,6 +1,5 @@
 ﻿
 using WitherTorch.Core.Software;
-using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -16,8 +15,6 @@ namespace WitherTorch.Core.Servers
         private sealed class SoftwareContextPrivate : SoftwareContextBase<Spigot>
         {
             public SoftwareContextPrivate() : base(SoftwareId) { }
-
-            public override string[] GetSoftwareVersions() => SpigotAPI.Versions;
 
             public override Spigot? CreateServerInstance(string serverDirectory) => new Spigot(serverDirectory);
         }

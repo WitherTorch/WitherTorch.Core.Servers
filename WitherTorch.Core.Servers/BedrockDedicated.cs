@@ -1,20 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
-using WitherTorch.Core.Software;
 using WitherTorch.Core.Property;
+using WitherTorch.Core.Runtime;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
 using static WitherTorch.Core.Utils.WebClient2;
-
-using Version = System.Version;
-using YamlDotNet.Core;
-using WitherTorch.Core.Runtime;
 
 namespace WitherTorch.Core.Servers
 {
@@ -23,8 +21,6 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public sealed partial class BedrockDedicated : LocalServerBase
     {
-        private const string DownloadURLForLinux = "https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-{0}.zip";
-        private const string DownloadURLForWindows = "https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-{0}.zip";
         private const string SoftwareId = "bedrockDedicated";
 
         private string _version = string.Empty;
@@ -41,62 +37,52 @@ namespace WitherTorch.Core.Servers
         public override InstallTask? GenerateInstallServerTask(string version)
         {
             if (string.IsNullOrWhiteSpace(version))
-            {
-                string[] versions = _software.GetSoftwareVersions();
-                if (versions.Length <= 0)
-                    return null;
-                version = versions[0];
-                if (string.IsNullOrWhiteSpace(version))
-                    return null;
-            }
-
-            string? downloadURL = null;
-#if NET5_0_OR_GREATER
-            if (OperatingSystem.IsLinux())
-            {
-                downloadURL = string.Format(DownloadURLForLinux, version);
-            }
-            else if (OperatingSystem.IsWindows())
-            {
-                downloadURL = string.Format(DownloadURLForWindows, version);
-            }
-#else
-            PlatformID platformID = Environment.OSVersion.Platform;
-            switch (platformID)
-            {
-                case PlatformID.Unix:
-                    downloadURL = string.Format(DownloadURLForLinux, version);
-                    break;
-                case PlatformID.Win32NT:
-                    downloadURL = string.Format(DownloadURLForWindows, version);
-                    break;
-            }
-#endif
-
-            return InstallSoftware(version, downloadURL);
-        }
-
-        private InstallTask? InstallSoftware(string version, string? downloadUrl)
-        {
-            if (string.IsNullOrEmpty(downloadUrl))
                 return null;
 
-            return new InstallTask(this, version, (task, token) =>
-            {
-                WebClient2 client = new WebClient2();
-                InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
-                task.ChangeStatus(new DownloadStatus(ObjectUtils.ThrowIfNull(downloadUrl), 0));
-                client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
-                client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
-                client.DownloadDataAsync(new Uri(downloadUrl), task);
-            });
+            return new InstallTask(this, version, RunInstallServerTaskAsync);
+        }
+
+        /// <inheritdoc/>
+        public override InstallTask? GenerateUpdateServerTask()
+        {
+            string? version = _software.GetSoftwareVersionsAsync().Result.FirstOrDefault();
+            if (string.IsNullOrEmpty(version))
+                return null;
+            return GenerateInstallServerTask(version!);
+        }
+
+        private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
+        {
+            string version = task.Version;
+            if (!(await _software.GetSoftwareVersionDictionaryAsync()).TryGetValue(version, out string? downloadUrl))
+                return false;
+            using WebClient2 client = new WebClient2();
+            using InstallTaskWatcher<byte[]?> watcher = new InstallTaskWatcher<byte[]?>(task, client);
+            task.ChangeStatus(new DownloadStatus(downloadUrl, 0));
+            client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
+            client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
+            client.DownloadDataAsync(new Uri(downloadUrl), watcher);
+            byte[]? data = await watcher.WaitUtilFinishedAsync();
+            if (data is null || token.IsCancellationRequested)
+                return false;
+            if (task.Status is DownloadStatus downloadStatus)
+                downloadStatus.Percentage = 100;
+            task.ChangePercentage(50);
+            if (!TryDecompressData(task, data, token))
+                return false;
+            task.ChangePercentage(100);
+            _version = task.Version;
+            OnServerVersionChanged();
+            return true;
         }
 
         private void InstallSoftware_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
         {
-            if (e.UserState is not InstallTask task || task.Status is not DownloadStatus status)
+            if (e.UserState is not InstallTaskWatcher<byte[]?> watcher)
                 return;
-
+            InstallTask task = watcher.Task;
+            if (task.Status is not DownloadStatus status)
+                return;
             double percentage = e.ProgressPercentage;
             status.Percentage = percentage;
             task.ChangePercentage(percentage * 0.5);
@@ -108,21 +94,14 @@ namespace WitherTorch.Core.Servers
                 return;
             client.DownloadProgressChanged -= InstallSoftware_DownloadProgressChanged;
             client.DownloadDataCompleted -= InstallSoftware_DownloadDataCompleted;
-            if (e.UserState is not InstallTask task)
+            if (e.UserState is not InstallTaskWatcher<byte[]?> watcher)
                 return;
-            if (task.Status is DownloadStatus downloadStatus)
-            {
-                downloadStatus.Percentage = 100;
-            }
-            task.ChangePercentage(50);
-            if (e.Cancelled || e.Error is not null)
-            {
-                task.OnInstallFailed();
-                return;
-            }
-            client.Dispose();
-            using InstallTaskWatcher watcher = new InstallTaskWatcher(task, null);
-            using MemoryStream stream = new MemoryStream(ObjectUtils.ThrowIfNull(e.Result));
+            watcher.MarkAsFinished(e.Result);
+        }
+
+        private bool TryDecompressData(InstallTask task, byte[] data, CancellationToken token)
+        {
+            using MemoryStream stream = new MemoryStream(data);
             try
             {
                 using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, true))
@@ -133,7 +112,7 @@ namespace WitherTorch.Core.Servers
                     IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
                     int currentCount = 0;
                     int count = entries.Count;
-                    while (enumerator.MoveNext() && !watcher.IsStopRequested)
+                    while (enumerator.MoveNext() && !token.IsCancellationRequested)
                     {
                         ZipArchiveEntry entry = enumerator.Current;
                         string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
@@ -150,15 +129,12 @@ namespace WitherTorch.Core.Servers
                                 case "whitelist.json":
                                 case "permissions.json":
                                 case "server.properties":
-                                    if (!File.Exists(filePath))
-                                    {
-                                        goto default;
-                                    }
-                                    break;
+                                    if (File.Exists(filePath))
+                                        break;
+
+                                    goto default;
                                 default:
-                                    {
-                                        entry.ExtractToFile(filePath, true);
-                                    }
+                                    entry.ExtractToFile(filePath, true);
                                     break;
                             }
                         }
@@ -169,22 +145,12 @@ namespace WitherTorch.Core.Servers
                     }
                 }
                 stream.Close();
-                if (watcher.IsStopRequested)
-                {
-                    task.OnInstallFailed();
-                }
-                else
-                {
-                    task.ChangePercentage(100);
-                    _version = task.Version;
-                    task.OnInstallFinished();
-                }
+                return !token.IsCancellationRequested;
             }
-            catch (Exception)
+            finally
             {
-                task.OnInstallFailed();
+                GC.Collect(generation: 1, GCCollectionMode.Optimized, blocking: false, compacting: false);
             }
-            GC.Collect(1, GCCollectionMode.Optimized, false, false);
         }
 
         /// <inheritdoc/>
@@ -234,9 +200,6 @@ namespace WitherTorch.Core.Servers
         public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
         {
         }
-
-        /// <inheritdoc/>
-        public override InstallTask? GenerateUpdateServerTask() => GenerateInstallServerTask(string.Empty);
 
         /// <inheritdoc/>
         protected override bool CreateServerCore() => true;

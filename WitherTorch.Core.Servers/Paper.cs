@@ -24,10 +24,10 @@ namespace WitherTorch.Core.Servers
         private const string SoftwareId = "paper";
 
         private static readonly string UserAgentForPaperV3Api = $"withertorch/{Assembly.GetCallingAssembly().GetName().Version} (new1271@outlook.com)";
-        private static readonly Lazy<MojangAPI.VersionInfo?> mc1_19 = new Lazy<MojangAPI.VersionInfo?>(
-            () => (MojangAPI.VersionDictionary?.TryGetValue("1.19", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
+        private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_19 = new (
+            async () => (await MojangAPI.GetVersionDictionaryAsync()).TryGetValue("1.19", out MojangAPI.VersionInfo? result) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
-        private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
+        private readonly Lazy<IPropertyFile[]> _propertyFilesLazy;
         private string _version = string.Empty;
         private int _build = -1;
 
@@ -37,11 +37,11 @@ namespace WitherTorch.Core.Servers
         public JavaPropertyFile ServerPropertiesFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => (JavaPropertyFile)propertyFilesLazy.Value[0];
+            get => (JavaPropertyFile)_propertyFilesLazy.Value[0];
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private set
             {
-                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile[] propertyFiles = _propertyFilesLazy.Value;
                 IPropertyFile propertyFile = propertyFiles[0];
                 propertyFiles[0] = value;
                 propertyFile.Dispose();
@@ -54,11 +54,11 @@ namespace WitherTorch.Core.Servers
         public YamlPropertyFile BukkitYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => (YamlPropertyFile)propertyFilesLazy.Value[1];
+            get => (YamlPropertyFile)_propertyFilesLazy.Value[1];
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private set
             {
-                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile[] propertyFiles = _propertyFilesLazy.Value;
                 IPropertyFile propertyFile = propertyFiles[1];
                 propertyFiles[1] = value;
                 propertyFile.Dispose();
@@ -71,11 +71,11 @@ namespace WitherTorch.Core.Servers
         public YamlPropertyFile SpigotYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => (YamlPropertyFile)propertyFilesLazy.Value[2];
+            get => (YamlPropertyFile)_propertyFilesLazy.Value[2];
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private set
             {
-                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile[] propertyFiles = _propertyFilesLazy.Value;
                 IPropertyFile propertyFile = propertyFiles[2];
                 propertyFiles[2] = value;
                 propertyFile.Dispose();
@@ -88,11 +88,11 @@ namespace WitherTorch.Core.Servers
         public YamlPropertyFile PaperYMLFile
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => (YamlPropertyFile)propertyFilesLazy.Value[3];
+            get => (YamlPropertyFile)_propertyFilesLazy.Value[3];
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private set
             {
-                IPropertyFile[] propertyFiles = propertyFilesLazy.Value;
+                IPropertyFile[] propertyFiles = _propertyFilesLazy.Value;
                 IPropertyFile propertyFile = propertyFiles[3];
                 propertyFiles[3] = value;
                 propertyFile.Dispose();
@@ -101,7 +101,7 @@ namespace WitherTorch.Core.Servers
 
         private Paper(string serverDirectory) : base(serverDirectory)
         {
-            propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
+            _propertyFilesLazy = new Lazy<IPropertyFile[]>(GetServerPropertyFilesCore, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         /// <inheritdoc/>
@@ -113,43 +113,29 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
-            MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
+            if (string.IsNullOrEmpty(version))
+                return null;
+            return new InstallTask(this, version, RunInstallServerTaskAsync);
+        }
+
+        private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
+        {
+            string version = task.Version;
+            MojangAPI.VersionInfo? versionInfo = await FindVersionInfoAsync(version);
             if (versionInfo is null)
-                return null;
-            return InstallServerCore(versionInfo);
-        }
-
-        private InstallTask? InstallServerCore(MojangAPI.VersionInfo info)
-        {
-            string? id = info.Id;
-            if (id is null || id.Length <= 0)
-                return null;
-            return new InstallTask(this, id, async (task, token) =>
-            {
-                if (!await InstallServerCore(task, info, token))
-                    task.OnInstallFailed();
-            });
-        }
-
-        private async Task<bool> InstallServerCore(InstallTask task, MojangAPI.VersionInfo info, CancellationToken token)
-        {
-            string? version = info.Id;
-            if (version is null || version.Length <= 0)
                 return false;
             string manifestURL = string.Format(BuildVersionManifestListURL, version);
             if (string.IsNullOrEmpty(manifestURL))
                 return false;
-            WebClient2 client = new WebClient2();
+            using WebClient2 client = new WebClient2();
             client.DefaultRequestHeaders.Add("User-Agent", UserAgentForPaperV3Api);
-            InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+            JsonObject? jsonObject
 #if NET8_0_OR_GREATER
-            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
+                = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
 #else
-            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
-            if (token.IsCancellationRequested)
-                return false;
+                = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
 #endif
-            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("builds", out JsonNode? node))
+            if (token.IsCancellationRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("builds", out JsonNode? node))
                 return false;
             JsonArray? jsonArray = node as JsonArray;
             if (jsonArray is null)
@@ -163,40 +149,38 @@ namespace WitherTorch.Core.Servers
             jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
 #else
             jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
-            if (token.IsCancellationRequested)
-                return false;
-#endif
-            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out node))
+#endif           
+            if (token.IsCancellationRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out node))
                 return false;
             jsonObject = node as JsonObject;
             if (jsonObject is null || !jsonObject.TryGetPropertyValue("server:default", out node))
                 return false;
             jsonObject = node as JsonObject;
-            if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node) || node is not JsonValue urlValueNode || urlValueNode.GetValueKind() != JsonValueKind.String)
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node) || 
+                node is not JsonValue addressNode || addressNode.GetValueKind() != JsonValueKind.String)
                 return false;
             byte[]? sha256 = null;
             if (WTCore.CheckFileHashIfExist && jsonObject.TryGetPropertyValue("checksums", out node))
             {
                 jsonObject = node as JsonObject;
-                if (jsonObject is not null && jsonObject.TryGetPropertyValue("sha256", out JsonNode? sha256Node) && 
+                if (jsonObject is not null && jsonObject.TryGetPropertyValue("sha256", out JsonNode? sha256Node) &&
                     sha256Node is JsonValue sha256ValueNode && sha256ValueNode.GetValueKind() == JsonValueKind.String)
                     sha256 = HashHelper.HexStringToByte(sha256ValueNode.GetValue<string>());
             }
-            watcher.Dispose();
-            void afterInstallFinished()
-            {
-                _version = version;
-                _build = build;
-                MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
-                _versionInfo = versionInfo;
-                if (propertyFilesLazy.IsValueCreated)
-                    PaperYMLFile = GetPaperConfigFile(versionInfo);
-                OnServerVersionChanged();
-            }
-            return FileDownloadHelper.AddTask(task: task, webClient: client,
-                downloadUrl: urlValueNode.GetValue<string>(),
-                filename: Path.Combine(ServerDirectory, $"paper-{version}.jar"),
-                hash: sha256, hashMethod: HashHelper.HashMethod.SHA256, afterInstalledAction: afterInstallFinished).HasValue;
+            if (!await FileDownloadHelper.DownloadFileAsync(task: task,
+                sourceAddress: addressNode.GetValue<string>(),
+                targetFilename: Path.GetFullPath(Path.Combine(ServerDirectory, $"paper-{version}.jar")),
+                cancellationToken: token, webClient: client,
+                hash: sha256, hashMethod: HashHelper.HashMethod.SHA256))
+                return false;
+            _version = version;
+            _build = build;
+            _versionInfo = versionInfo;
+            if (_propertyFilesLazy.IsValueCreated)
+                PaperYMLFile = await GetPaperConfigFileAsync(versionInfo);
+            Thread.MemoryBarrier();
+            OnServerVersionChanged();
+            return true;
         }
 
         /// <inheritdoc/>
@@ -208,7 +192,7 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
-            return propertyFilesLazy.Value;
+            return _propertyFilesLazy.Value;
         }
 
         private IPropertyFile[] GetServerPropertyFilesCore()
@@ -219,18 +203,17 @@ namespace WitherTorch.Core.Servers
                 new JavaPropertyFile(Path.Combine(directory, "./server.properties")),
                 new YamlPropertyFile(Path.Combine(directory, "./bukkit.yml")),
                 new YamlPropertyFile(Path.Combine(directory, "./spigot.yml")),
-                GetPaperConfigFile(),
+                GetPaperConfigFileAsync().Result,
             };
             return result;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private YamlPropertyFile GetPaperConfigFile(MojangAPI.VersionInfo? versionInfo = null)
+        private async Task<YamlPropertyFile> GetPaperConfigFileAsync(MojangAPI.VersionInfo? versionInfo = null)
         {
             string directory = ServerDirectory;
             string paperConfigPath;
             versionInfo ??= GetMojangVersionInfo();
-            MojangAPI.VersionInfo? mc1_19 = Paper.mc1_19.Value;
+            MojangAPI.VersionInfo? mc1_19 = await Paper.mc1_19.Value;
             if (versionInfo is null || mc1_19 is null || versionInfo < mc1_19)
             {
                 paperConfigPath = Path.Combine(directory, "./paper.yml");
@@ -263,7 +246,7 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
-            return FindVersionInfo(_version);
+            return FindVersionInfoAsync(_version).Result;
         }
 
         /// <inheritdoc/>

@@ -1,6 +1,6 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,44 +18,37 @@ namespace WitherTorch.Core.Servers
         /// <summary>
         /// 取得與 <see cref="Fabric"/> 相關聯的軟體上下文
         /// </summary>
-        public static IFabricLikeSoftwareSoftware Software => _software;
+        public static IFabricLikeSoftwareContext Software => _software;
 
-        private sealed class SoftwareContextPrivate : SoftwareContextBase<Fabric>, IFabricLikeSoftwareSoftware
+        private sealed class SoftwareContextPrivate : SoftwareContextBase<Fabric>, IFabricLikeSoftwareContext
         {
             private const string ManifestListURL = "https://meta.fabricmc.net/v2/versions/game";
             private const string ManifestListURLForLoader = "https://meta.fabricmc.net/v2/versions/loader";
 
-            private readonly Lazy<Task<string[]>> _versionsLazy = 
-                new Lazy<Task<string[]>>(LoadVersionListAsync, LazyThreadSafetyMode.ExecutionAndPublication);
-            private readonly Lazy<Task<VersionStruct[]>> _loaderVersionsLazy =
-                new Lazy<Task<VersionStruct[]>>(LoadFabricLoaderVersionsAsync, LazyThreadSafetyMode.ExecutionAndPublication);
-            private readonly Lazy<string[]> _loaderVersionKeysLazy;
+            private readonly Lazy<Task<IReadOnlyList<string>>> _versionsLazy =
+                new(LoadVersionListAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+            private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, VersionStruct>>> _loaderVersionsKeyGroupLazy =
+                new(LoadFabricLoaderVersionsAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
-            public SoftwareContextPrivate() : base(SoftwareId)
-            {
-                _loaderVersionKeysLazy = new Lazy<string[]>(LoadFabricLoaderVersionKeys, LazyThreadSafetyMode.PublicationOnly);
-            }
+            public SoftwareContextPrivate() : base(SoftwareId) { }
 
             public override Fabric? CreateServerInstance(string serverDirectory) => new Fabric(serverDirectory);
 
-            public override string[] GetSoftwareVersions() => _versionsLazy.Value.Result;
+            public override async Task<IReadOnlyList<string>> GetSoftwareVersionsAsync()
+                => await _versionsLazy.Value.ConfigureAwait(false);
 
-            public string[] GetSoftwareLoaderVersions() => _loaderVersionKeysLazy.Value;
+            public async Task<IReadOnlyList<string>> GetSoftwareLoaderVersionsAsync()
+                => (await _loaderVersionsKeyGroupLazy.Value.ConfigureAwait(false)).Keys;
 
-            public async Task<string> GetLatestStableFabricLoaderVersionAsync()
+            public async ValueTask<string?> GetLatestStableFabricLoaderVersionAsync(CancellationToken token)
             {
-                VersionStruct[] loaderVersions = await _loaderVersionsLazy.Value;
-                int count = loaderVersions.Length;
-                for (int i = 0; i < count; i++)
-                {
-                    VersionStruct loaderVersion = loaderVersions[i];
-                    if (loaderVersion.Stable)
-                        return loaderVersion.Version;
-                }
-                return count > 0 ? loaderVersions[0].Version : string.Empty;
+                IEnumerable<VersionStruct> loaderVersions = (await _loaderVersionsKeyGroupLazy.Value.ConfigureAwait(false)).Dictionary.Values;
+                if (token.IsCancellationRequested)
+                    return null;
+                return loaderVersions.Where(static val => val.Stable).Select(static val => val.Version).FirstOrDefault();
             }
 
-            private static async Task<string[]> LoadVersionListAsync()
+            private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
             {
                 try
                 {
@@ -73,33 +66,34 @@ namespace WitherTorch.Core.Servers
                 if (manifestString is null || manifestString.Length <= 0)
                     return null;
                 VersionStruct[]? array = JsonSerializer.Deserialize<VersionStruct[]>(manifestString);
-                if (array is null)
+                if (array is null || array.Length <= 0)
                     return null;
-                int length = array.Length;
-                if (length <= 0)
-                    return null;
-                List<string> versionList = new List<string>(length);
-                string[] versions = MojangAPI.Versions;
-                for (int i = 0; i < length; i++)
-                {
-                    string version = array[i].Version;
-                    if (versions.Contains(version))
-                        versionList.Add(version);
-                }
-                Array.Sort(versions, MojangAPI.VersionComparer.Instance.Reverse());
-                return versions;
+                IReadOnlyList<string> vanillaVersions = await MojangAPI.GetVersionsAsync();
+                string[] result
+#if NET8_0_OR_GREATER
+                    = array.Select(static val => val.Version).Intersect(vanillaVersions).ToArray();
+#else
+                    = array.Select(static val => val.Version).Where(val => vanillaVersions.Contains(val)).ToArray();
+#endif
+                Array.Sort(result, MojangAPI.VersionComparer.Instance.Reverse());
+                return result;
             }
 
-            private static async Task<VersionStruct[]> LoadFabricLoaderVersionsAsync()
+            private static async Task<ReadOnlyDictionaryKeyGroup<string, VersionStruct>> LoadFabricLoaderVersionsAsync()
             {
+                VersionStruct[]? versions;
                 try
                 {
-                    return await LoadFabricLoaderVersionsAsyncCore() ?? Array.Empty<VersionStruct>();
+                    versions = await LoadFabricLoaderVersionsAsyncCore();
                 }
                 catch (Exception)
                 {
+                    versions = null;
                 }
-                return Array.Empty<VersionStruct>();
+                if (versions is null || versions.Length <= 0)
+                    return ReadOnlyDictionaryKeyGroup<string, VersionStruct>.Empty;
+
+                return ReadOnlyDictionaryKeyGroup.Create(versions.Select(static val => val.Version).ToArray(), versions);
             }
 
             private static async Task<VersionStruct[]?> LoadFabricLoaderVersionsAsyncCore()
@@ -108,18 +102,6 @@ namespace WitherTorch.Core.Servers
                 if (manifestString is null || manifestString.Length <= 0)
                     return null;
                 return JsonSerializer.Deserialize<VersionStruct[]>(manifestString);
-            }
-
-            private string[] LoadFabricLoaderVersionKeys()
-            {
-                VersionStruct[] loaderVersions = _loaderVersionsLazy.Value.Result;
-                int length = loaderVersions.Length;
-                if (length <= 0)
-                    return Array.Empty<string>();
-                string[] result = new string[length];
-                for (int i = 0; i < length; i++)
-                    result[i] = loaderVersions[i].Version;
-                return result;
             }
         }
     }

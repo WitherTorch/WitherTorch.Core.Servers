@@ -20,7 +20,8 @@ namespace WitherTorch.Core.Servers
 
         private sealed class SoftwareContextPrivate : SoftwareContextBase<JavaDedicated>
         {
-            private string[] _versions = Array.Empty<string>();
+            private static readonly Lazy<Task<IReadOnlyList<string>>> _versionListLazy = new(
+                LoadVersionListAsync, LazyThreadSafetyMode.PublicationOnly);
 
             public SoftwareContextPrivate() : base(SoftwareId) { }
 
@@ -30,15 +31,15 @@ namespace WitherTorch.Core.Servers
             {
                 if (!await base.TryInitializeAsync(token))
                     return false;
-                _versions = LoadVersionList();
+                await _versionListLazy.Value;
                 return true;
             }
 
-            public override string[] GetSoftwareVersions() => _versions;
+            public override Task<IReadOnlyList<string>> GetSoftwareVersionsAsync() => _versionListLazy.Value;
 
-            private static string[] LoadVersionList()
+            private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
             {
-                IReadOnlyDictionary<string, MojangAPI.VersionInfo> dict = MojangAPI.VersionDictionary;
+                IReadOnlyDictionary<string, MojangAPI.VersionInfo> dict = await MojangAPI.GetVersionDictionaryAsync();
                 int count = dict.Count;
                 if (count <= 0)
                     return Array.Empty<string>();

@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Software;
@@ -24,19 +25,20 @@ namespace WitherTorch.Core.Servers
         {
             private const string ManifestListURL = "https://fill.papermc.io/v3/projects/paper";
 
-            private readonly Lazy<string[]> _versionsLazy = new Lazy<string[]>(LoadVersionList, LazyThreadSafetyMode.ExecutionAndPublication);
+            private readonly Lazy<Task<IReadOnlyList<string>>> _versionsLazy = new 
+                (LoadVersionListAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
             public SoftwareContextPrivate() : base(SoftwareId) { }
 
-            public override string[] GetSoftwareVersions() => _versionsLazy.Value;
+            public override Task<IReadOnlyList<string>> GetSoftwareVersionsAsync() => _versionsLazy.Value;
 
             public override Paper? CreateServerInstance(string serverDirectory) => new Paper(serverDirectory);
 
-            private static string[] LoadVersionList()
+            private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
             {
                 try
                 {
-                    return LoadVersionListInternal() ?? Array.Empty<string>();
+                    return await LoadVersionListCoreAsync() ?? Array.Empty<string>();
                 }
                 catch (Exception)
                 {
@@ -44,12 +46,12 @@ namespace WitherTorch.Core.Servers
                 return Array.Empty<string>();
             }
 
-            private static string[]? LoadVersionListInternal()
+            private static async Task<IReadOnlyList<string>?> LoadVersionListCoreAsync()
             {
                 CachedDownloadClient client = CachedDownloadClient.Instance;
                 HttpClient innerClient = client.InnerHttpClient;
                 innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", UserAgentForPaperV3Api);
-                string? manifestString = client.DownloadString(ManifestListURL);
+                string? manifestString = await client.DownloadStringAsync(ManifestListURL);
                 innerClient.DefaultRequestHeaders.Remove("User-Agent");
 
                 if (manifestString is null || manifestString.Length <= 0)
@@ -79,7 +81,6 @@ namespace WitherTorch.Core.Servers
                 Array.Reverse(result);
                 return result;
             }
-
         }
     }
 }

@@ -1,8 +1,9 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 
 using WitherTorch.Core.Runtime;
@@ -12,181 +13,157 @@ using static WitherTorch.Core.Utils.WebClient2;
 
 namespace WitherTorch.Core.Servers.Utils
 {
-    internal sealed class FabricInstaller
+    internal static class FabricInstaller
     {
-        private delegate void UpdateProgressChangedEventHandler(int progress);
-        public delegate void AfterInstalledEventHandler(string minecraftVersion, string fabricLoaderVersion);
-
         private const string ManifestListURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml";
         private const string DownloadURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{0}/fabric-installer-{0}.jar";
 
-        private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
-        private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.jar"));
-        private static readonly FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./fabric-installer.version"));
-        private static readonly FabricInstaller _instance = new FabricInstaller();
+        private static readonly string _installerDirectoryPath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
+        private static readonly string _installerFilePath = Path.GetFullPath(Path.Combine(_installerDirectoryPath, "./fabric-installer.jar"));
+        private static readonly string _installerVersionDataPath = Path.GetFullPath(Path.Combine(_installerDirectoryPath, "./fabric-installer.version"));
 
-        private event EventHandler? UpdateStarted;
-        private event UpdateProgressChangedEventHandler? UpdateProgressChanged;
-        private event EventHandler? UpdateFinished;
-
-        public static FabricInstaller Instance => _instance;
-
-        private static bool CheckUpdate(out string? updatedVersion)
+        private static async ValueTask<string?> CheckUpdateAsync(CancellationToken token)
         {
-            string? version = null, nowVersion;
-            if (workingDirectoryInfo.Exists)
+            string? currentVersion = null;
+            string directoryPath = _installerDirectoryPath;
+            if (Directory.Exists(directoryPath))
             {
-                if (buildToolVersionInfo.Exists && buildToolFileInfo.Exists)
+                string versionDataPath = _installerVersionDataPath;
+                if (File.Exists(versionDataPath) && File.Exists(_installerFilePath))
                 {
-                    using (StreamReader reader = buildToolVersionInfo.OpenText())
-                    {
-                        string? versionText;
-                        do
-                        {
-                            versionText = reader.ReadLine();
-                        } while (string.IsNullOrWhiteSpace(versionText));
-                        if (!string.IsNullOrWhiteSpace(versionText)) version = versionText;
-                    }
+                    using StreamReader reader = new StreamReader(versionDataPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
+                    string? line
+#if NET8_0_OR_GREATER
+                        = await reader.ReadLineAsync(token).ConfigureAwait(continueOnCapturedContext: false);
+#else
+                        = await reader.ReadLineAsync().ConfigureAwait(continueOnCapturedContext: false);
+#endif
+                    if (token.IsCancellationRequested)
+                        return null;
+                    currentVersion = line;
                 }
             }
             else
             {
-                workingDirectoryInfo.Create();
+                Directory.CreateDirectory(directoryPath);
             }
 
-            XmlDocument manifestXML = new XmlDocument();
-            using (WebClient2 client = new WebClient2())
             {
-                client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-                manifestXML.LoadXml(client.DownloadString(ManifestListURL));
+                XmlDocument manifestXML = new XmlDocument();
+                using (WebClient2 client = new WebClient2())
+                {
+                    client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
+                    manifestXML.LoadXml(await client.DownloadStringTaskAsync(ManifestListURL).ConfigureAwait(continueOnCapturedContext: false));
+                }
+                string? versionString = manifestXML.SelectSingleNode("//metadata/versioning/latest")?.InnerText;
+                if (versionString is null)
+                    return currentVersion;
+                return versionString.Equals(currentVersion, StringComparison.Ordinal) ? null : versionString;
             }
-            nowVersion = manifestXML.SelectSingleNode("//metadata/versioning/latest")?.InnerText;
-            if (version != nowVersion)
-            {
-                version = null;
-            }
-            updatedVersion = nowVersion;
-            return version is null;
         }
-        private void Update(InstallTask installTask, string? version)
+
+        private static async ValueTask<bool> UpdateAsync(InstallTask task, string installerVersion, CancellationToken token)
         {
-            if (version is null || version.Length <= 0)
-                return;
-            UpdateStarted?.Invoke(this, EventArgs.Empty);
-            WebClient2? client = new WebClient2();
-            void StopRequestedHandler(object? sender, EventArgs e)
-            {
-                try
-                {
-                    client?.CancelAsync();
-                    client?.Dispose();
-                }
-                catch (Exception)
-                {
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-            };
-            installTask.StopRequested += StopRequestedHandler;
-            client.DownloadProgressChanged += delegate (object? sender, DownloadProgressChangedEventArgs e)
-                        {
-                            UpdateProgressChanged?.Invoke(e.ProgressPercentage);
-                        };
-            client.DownloadFileCompleted += delegate (object? sender, AsyncCompletedEventArgs e)
-            {
-                client.Dispose();
-                client = null;
-                using (StreamWriter writer = buildToolVersionInfo.CreateText())
-                {
-                    writer.WriteLine(version);
-                    writer.Flush();
-                    writer.Close();
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-                UpdateFinished?.Invoke(this, EventArgs.Empty);
-            };
+            using WebClient2 client = new WebClient2();
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client);
+
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-            client.DownloadFileAsync(new Uri(string.Format(DownloadURL, version)), buildToolFileInfo.FullName);
+            client.DownloadProgressChanged += UpdateAsync_DownloadProgressChanged;
+            client.DownloadFileCompleted += UpdateAsync_DownloadFileCompleted;
+            client.DownloadFileAsync(new Uri(string.Format(DownloadURL, installerVersion)), _installerFilePath, watcher);
+            if (!await watcher.WaitUtilFinishedAsync() || token.IsCancellationRequested)
+                return false;
+
+            using StreamWriter writer = new StreamWriter(_installerVersionDataPath, append: false, encoding: Encoding.UTF8);
+            await writer.WriteLineAsync(installerVersion).ConfigureAwait(continueOnCapturedContext: false);
+#if NET8_0_OR_GREATER
+            await writer.FlushAsync(token).ConfigureAwait(continueOnCapturedContext: false);
+#else
+            await writer.FlushAsync().ConfigureAwait(continueOnCapturedContext: false);
+#endif
+            writer.Close();
+            return true;
         }
 
-        public void Install(InstallTask task, string minecraftVersion, string fabricLoaderVersion, AfterInstalledEventHandler afterInstalledEventHandler)
+        private static void UpdateAsync_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
         {
-            InstallTask installTask = task;
-            FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
-            installTask.ChangeStatus(status);
-            bool isStop = false;
-            void StopRequestedHandler(object? sender, EventArgs e)
-            {
-                isStop = true;
-                installTask.StopRequested -= StopRequestedHandler;
-            };
-            installTask.StopRequested += StopRequestedHandler;
-            bool hasUpdate = CheckUpdate(out string? newVersion);
-            installTask.StopRequested -= StopRequestedHandler;
-            if (isStop) return;
-            if (hasUpdate)
-            {
-                UpdateStarted += (sender, e) =>
-                {
-                    status.State = SpigotBuildToolsStatus.ToolState.Update;
-                };
-                UpdateProgressChanged += (progress) =>
-                {
-                    status.Percentage = progress;
-                    installTask.ChangePercentage(progress / 2);
-                };
-                UpdateFinished += (sender, e) =>
-                {
-                    installTask.ChangePercentage(50);
-                    installTask.OnStatusChanged();
-                    DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion, afterInstalledEventHandler);
-                };
-                Update(installTask, newVersion);
-            }
-            else
-            {
-                installTask.ChangePercentage(50);
-                installTask.OnStatusChanged();
-                DoInstall(installTask, status, minecraftVersion, fabricLoaderVersion, afterInstalledEventHandler);
-            }
-        }
-
-        private static void DoInstall(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion, AfterInstalledEventHandler afterInstalledEventHandler)
-        {
-            InstallTask installTask = task;
-            FabricInstallerStatus installStatus = status;
-            installStatus.State = SpigotBuildToolsStatus.ToolState.Build;
-            JavaRuntimeEnvironment environment = RuntimeEnvironment.JavaDefault;
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft", buildToolFileInfo.FullName, minecraftVersion, fabricLoaderVersion, installTask.Owner.ServerDirectory),
-                WorkingDirectory = workingDirectoryInfo.FullName,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-            Process? innerProcess = Process.Start(startInfo);
-            if (innerProcess is null)
-            {
-                task.OnInstallFailed();
+            if (e.UserState is not InstallTaskWatcher<bool> watcher)
                 return;
-            }
-            innerProcess.EnableRaisingEvents = true;
-            innerProcess.BeginOutputReadLine();
-            innerProcess.BeginErrorReadLine();
-            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
-            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
-            innerProcess.Exited += (sender, e) =>
+            InstallTask task = watcher.Task;
+            if (task.Status is not FabricInstallerStatus status || status.State != SpigotBuildToolsStatus.ToolState.Update)
+                return;
+            double percentage = e.ProgressPercentage;
+            status.Percentage = percentage;
+            task.ChangePercentage(percentage * 0.5);
+        }
+
+        private static void UpdateAsync_DownloadFileCompleted(object? sender, AsyncCompletedEventArgs e)
+        {
+            if (sender is not WebClient2 client || e.UserState is not InstallTaskWatcher<bool> watcher)
+                return;
+            client.DownloadProgressChanged -= UpdateAsync_DownloadProgressChanged;
+            client.DownloadFileCompleted -= UpdateAsync_DownloadFileCompleted;
+            watcher.MarkAsFinished(!e.Cancelled && e.Error is null);
+        }
+
+        public static async ValueTask<bool> InstallAsync(InstallTask task, string minecraftVersion, string fabricLoaderVersion, CancellationToken token)
+        {
+            if (token.IsCancellationRequested)
+                return false;
+            FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
+            task.ChangeStatus(status);
+            string? newInstallerVersion = await CheckUpdateAsync(token);
+            if (newInstallerVersion is not null)
             {
-                afterInstalledEventHandler.Invoke(minecraftVersion, fabricLoaderVersion);
-                installTask.OnInstallFinished();
-                installTask.ChangePercentage(100);
-                innerProcess.Dispose();
-            };
+                status.State = SpigotBuildToolsStatus.ToolState.Update;
+                status.Percentage = 0;
+                if (!await UpdateAsync(task, newInstallerVersion, token))
+                    return false;
+                status.Percentage = 100;
+            }
+            else if (token.IsCancellationRequested)
+                return false;
+            task.ChangePercentage(50);
+            task.OnStatusChanged();
+            if (!await RunInstallerAsync(task, status, minecraftVersion, fabricLoaderVersion, token))
+                return false;
+            task.ChangePercentage(100);
+            return true;
+        }
+
+        private static async ValueTask<bool> RunInstallerAsync(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion,
+            CancellationToken token)
+        {
+            status.State = SpigotBuildToolsStatus.ToolState.Build;
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, null);
+
+            void OnProcessEnded(object? sender, EventArgs args)
+            {
+                if (sender is not ILocalProcess process)
+                    return;
+                process.MessageReceived -= status.OnProcessMessageReceived;
+                process.ProcessEnded -= OnProcessEnded;
+                watcher.MarkAsFinished(true);
+            }
+
+            using ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
+            process.MessageReceived += status.OnProcessMessageReceived;
+            process.ProcessEnded += OnProcessEnded;
+            if (!process.Start(new LocalProcessStartInfo(
+                    fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+                    arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft",
+                        _installerFilePath, minecraftVersion, fabricLoaderVersion, task.Owner.ServerDirectory),
+                    workingDirectory: _installerDirectoryPath
+                )))
+                return false;
+            await watcher.WaitUtilFinishedAsync().ContinueWith(completedTask =>
+            {
+                process.MessageReceived -= status.OnProcessMessageReceived;
+                process.ProcessEnded -= OnProcessEnded;
+                if (completedTask.IsCanceled)
+                    process.Stop();
+            }, token);
+            return !token.IsCancellationRequested;
         }
     }
 }

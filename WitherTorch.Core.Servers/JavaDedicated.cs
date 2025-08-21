@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,63 +54,56 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
-            MojangAPI.VersionInfo? versionInfo = FindVersionInfo(version);
-            if (versionInfo is null)
+            if (string.IsNullOrEmpty(version))
                 return null;
-            return GenerateInstallServerTaskCore(versionInfo);
+            return new InstallTask(this, version, RunInstallServerTaskAsync);
         }
 
-        /// <inheritdoc/>
-        private InstallTask? GenerateInstallServerTaskCore(MojangAPI.VersionInfo versionInfo)
+        private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
         {
-            string? id = versionInfo.Id;
-            if (id is null || id.Length <= 0)
-                return null;
-            return new InstallTask(this, id, async (task, token) =>
+            string version = task.Version;
+            MojangAPI.VersionInfo? versionInfo = await FindVersionInfoAsync(version);
+            if (versionInfo is null || token.IsCancellationRequested)
+                return false;
             {
-                if (!await InstallServerCore(task, versionInfo, token))
-                    task.OnInstallFailed();
-            });
-        }
-
-        /// <inheritdoc/>
-        private async Task<bool> InstallServerCore(InstallTask task, MojangAPI.VersionInfo versionInfo, CancellationToken token)
-        {
+                string? replacingVersion = versionInfo.Id;
+                if (replacingVersion is not null)
+                    version = replacingVersion;
+            }
             string? manifestURL = versionInfo.ManifestURL;
-            if (manifestURL is null || manifestURL.Length <= 0)
+            if (string.IsNullOrEmpty(manifestURL))
                 return false;
-            WebClient2 client = new WebClient2();
-            InstallTaskWatcher watcher = new InstallTaskWatcher(task, client);
+            using WebClient2 client = new WebClient2();
+            JsonObject? jsonObject
 #if NET8_0_OR_GREATER
-            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
+                = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
 #else
-            JsonObject? jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
-            if (token.IsCancellationRequested)
-                return false;
+                = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
 #endif
-            if (watcher.IsStopRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out JsonNode? node))
+            if (token.IsCancellationRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("downloads", out JsonNode? node))
                 return false;
             jsonObject = node as JsonObject;
             if (jsonObject is null || !jsonObject.TryGetPropertyValue("server", out node))
                 return false;
             jsonObject = node as JsonObject;
-            if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node))
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node) ||
+                node is not JsonValue addressNode || addressNode.GetValueKind() != JsonValueKind.String)
                 return false;
-            byte[]? sha1;
-            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetPropertyValue("sha1", out JsonNode? sha1Node))
-                sha1 = HashHelper.HexStringToByte(ObjectUtils.ThrowIfNull(sha1Node).ToString());
-            else
-                sha1 = null;
-            watcher.Dispose();
-            void afterInstallFinished()
-            {
-                _version = versionInfo.Id ?? string.Empty;
-                _versionInfo = versionInfo;
-                OnServerVersionChanged();
-            }
-            return FileDownloadHelper.AddTask(task: task, webClient: client, downloadUrl: ObjectUtils.ThrowIfNull(node).ToString(),
-                filename: Path.Combine(ServerDirectory, @"minecraft_server." + versionInfo.Id + ".jar"),
-                hash: sha1, hashMethod: HashHelper.HashMethod.SHA1, afterInstalledAction: afterInstallFinished).HasValue;
+            byte[]? sha1 = null;
+            if (WTCore.CheckFileHashIfExist && jsonObject.TryGetPropertyValue("sha1", out JsonNode? sha1Node) &&
+                sha1Node is JsonValue sha1ValueNode && sha1ValueNode.GetValueKind() == JsonValueKind.String)
+                sha1 = HashHelper.HexStringToByte(sha1ValueNode.GetValue<string>());
+            if (!await FileDownloadHelper.DownloadFileAsync(task: task,
+                sourceAddress: addressNode.GetValue<string>(),
+                targetFilename: Path.GetFullPath(Path.Combine(ServerDirectory, $"minecraft_server.{version}.jar")),
+                cancellationToken: token, webClient: client,
+                hash: sha1, hashMethod: HashHelper.HashMethod.SHA1))
+                return false;
+            _version = version;
+            _versionInfo = versionInfo;
+            Thread.MemoryBarrier();
+            OnServerVersionChanged();
+            return true;
         }
 
         /// <inheritdoc/>
@@ -129,7 +123,7 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override MojangAPI.VersionInfo? BuildVersionInfo() => FindVersionInfo(_version);
+        protected override MojangAPI.VersionInfo? BuildVersionInfo() => FindVersionInfoAsync(_version).Result;
 
         /// <inheritdoc/>
         protected override bool CreateServerCore() => true;

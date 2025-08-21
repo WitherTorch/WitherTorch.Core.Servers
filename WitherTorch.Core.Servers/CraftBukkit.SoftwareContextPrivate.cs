@@ -1,6 +1,4 @@
-﻿
-using WitherTorch.Core.Servers.Utils;
-using WitherTorch.Core.Software;
+﻿using WitherTorch.Core.Software;
 
 namespace WitherTorch.Core.Servers
 {
@@ -16,8 +14,6 @@ namespace WitherTorch.Core.Servers
         private sealed class SoftwareContextPrivate : SoftwareContextBase<CraftBukkit>
         {
             public SoftwareContextPrivate() : base(SoftwareId) { }
-
-            public override string[] GetSoftwareVersions() => SpigotAPI.Versions;
 
             public override CraftBukkit? CreateServerInstance(string serverDirectory) => new CraftBukkit(serverDirectory);
         }

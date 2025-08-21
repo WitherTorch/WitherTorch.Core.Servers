@@ -1,16 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
-using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Property;
-
-using System.Runtime.CompilerServices;
-using System.Linq;
 using WitherTorch.Core.Runtime;
+using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -22,12 +21,11 @@ namespace WitherTorch.Core.Servers
         private const string DownloadURLPrefix = "{0}/net/minecraftforge/forge/";
         private const string SoftwareId = "forge";
 
-        private static readonly ThreadLocal<StringBuilder> localStringBuilder = new ThreadLocal<StringBuilder>(() => new StringBuilder(), false);
-        private static readonly Lazy<MojangAPI.VersionInfo?> mc1_3_2 = new Lazy<MojangAPI.VersionInfo?>(
-            () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
+        private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_3_2 = new(
+            async () => (await MojangAPI.GetVersionDictionaryAsync()).TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
-        private static readonly Lazy<MojangAPI.VersionInfo?> mc1_5_2 = new Lazy<MojangAPI.VersionInfo?>(
-            () => (MojangAPI.VersionDictionary?.TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ?? false) ? result : null,
+        private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_5_2 = new(
+            async () => (await MojangAPI.GetVersionDictionaryAsync()).TryGetValue("1.5.2", out MojangAPI.VersionInfo? result) ? result : null,
             LazyThreadSafetyMode.PublicationOnly);
 
         private string _minecraftVersion = string.Empty;
@@ -69,162 +67,130 @@ namespace WitherTorch.Core.Servers
         public string ForgeVersion => _forgeVersion;
 
         /// <inheritdoc/>
-        public override InstallTask? GenerateInstallServerTask(string version) => GenerateInstallServerTask(version, string.Empty);
+        public override InstallTask? GenerateInstallServerTask(string version)
+        {
+            if (string.IsNullOrEmpty(version))
+                return null;
+            return new InstallTask(this, version, RunInstallServerTaskAsync);
+        }
 
         /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
         /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
         /// <param name="forgeVersion">要更改的 Forge 版本</param>
         public InstallTask? GenerateInstallServerTask(string minecraftVersion, string forgeVersion)
         {
-            ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(minecraftVersion);
-            if (versions.Length <= 0)
+            if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(forgeVersion))
                 return null;
-            ForgeVersionEntry? targetVersion;
-            if (string.IsNullOrWhiteSpace(forgeVersion))
-                targetVersion = versions[0];
-            else
-                targetVersion = Array.Find(versions, val => string.Equals(val.version, forgeVersion));
-            if (targetVersion is null)
-                return null;
-            return GenerateInstallServerTaskCore(minecraftVersion, targetVersion);
+            return new InstallTask(this, minecraftVersion + "-" + forgeVersion,
+                (task, token) => RunInstallServerTaskAsync(task, minecraftVersion, forgeVersion, token));
         }
 
-        private InstallTask? GenerateInstallServerTaskCore(string minecraftVersion, ForgeVersionEntry selectedVersion)
+        private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
         {
-            return new InstallTask(this, minecraftVersion + "-" + selectedVersion.version, (task, token) =>
-            {
-                if (!InstallServerCore(task, minecraftVersion, selectedVersion))
-                    task.OnInstallFailed();
-            });
-        }
-
-        private bool InstallServerCore(InstallTask task, string minecraftVersion, ForgeVersionEntry selectedVersion)
-        {
-            if (selectedVersion is null)
+            string minecraftVersion = task.Version;
+            ForgeVersionEntry[] versionEntries = await _software.GetForgeVersionEntriesFromMinecraftVersionAsync(minecraftVersion);
+            if (versionEntries.Length <= 0)
                 return false;
+            return await RunInstallServerTaskCoreAsync(task, minecraftVersion, versionEntries[0], token);
+        }
+
+        private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, string minecraftVersion, string forgeVersion, CancellationToken token)
+        {
+            ForgeVersionEntry[] versionEntries = await _software.GetForgeVersionEntriesFromMinecraftVersionAsync(minecraftVersion);
+            if (versionEntries.Length <= 0)
+                return false;
+            ForgeVersionEntry? foundVersionEntry = Array.Find(versionEntries, val => string.Equals(val.version, forgeVersion));
+            if (foundVersionEntry is null)
+                return false;
+            return await RunInstallServerTaskCoreAsync(task, minecraftVersion, foundVersionEntry, token);
+        }
+
+        private async ValueTask<bool> RunInstallServerTaskCoreAsync(InstallTask task, string minecraftVersion, ForgeVersionEntry forgeVersionEntry, CancellationToken token)
+        {
             string sourceDomain = _software.AvailableSourceDomain;
-            string version = selectedVersion.version;
-            string versionRaw = selectedVersion.versionRaw;
-            if (string.IsNullOrEmpty(sourceDomain) || string.IsNullOrEmpty(version) || string.IsNullOrEmpty(versionRaw))
+            string forgeVersion = forgeVersionEntry.version;
+            string forgeVersionRaw = forgeVersionEntry.versionRaw;
+            if (string.IsNullOrEmpty(sourceDomain) || string.IsNullOrEmpty(forgeVersion) || string.IsNullOrEmpty(forgeVersionRaw))
+                return false;
+            MojangAPI.VersionInfo? versionInfo = await FindVersionInfoAsync(minecraftVersion);
+            if (versionInfo is null || token.IsCancellationRequested)
                 return false;
             bool needInstall;
             string downloadURL;
-            StringBuilder URLBuilder = ObjectUtils.ThrowIfNull(localStringBuilder.Value);
-            URLBuilder.AppendFormat(DownloadURLPrefix, sourceDomain);
-            MojangAPI.VersionInfo? info = FindVersionInfo(minecraftVersion);
-            if (info is null)
-                return false;
-            MojangAPI.VersionInfo? mc1_3_2 = Forge.mc1_3_2.Value;
-            MojangAPI.VersionInfo? mc1_5_2 = Forge.mc1_5_2.Value;
+            StringBuilder builder = ThreadLocalObjects.StringBuilder;
+            builder.AppendFormat(DownloadURLPrefix, sourceDomain);
+            MojangAPI.VersionInfo? mc1_3_2 = await Forge.mc1_3_2.Value;
+            MojangAPI.VersionInfo? mc1_5_2 = await Forge.mc1_5_2.Value;
             if (mc1_3_2 is null || mc1_5_2 is null)
                 return false;
-            if (info < mc1_3_2) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
+            if (versionInfo < mc1_3_2) // 1.1~1.2 > Download Server Zip (i don't know why forge use zip...)
             {
-                URLBuilder.AppendFormat("{0}/forge-{0}-server.zip", versionRaw);
-                downloadURL = URLBuilder.ToString();
+                builder.AppendFormat("{0}/forge-{0}-server.zip", forgeVersionRaw);
+                downloadURL = builder.ToString();
                 needInstall = false;
             }
-            else
+            else if (versionInfo < mc1_5_2) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
             {
-                if (info < mc1_5_2) // 1.3.2~1.5.1 > Download Universal Zip (i don't know why forge use zip...)
-                {
-                    URLBuilder.AppendFormat("{0}/forge-{0}-universal.zip", versionRaw);
-                    downloadURL = URLBuilder.ToString();
-                    needInstall = false;
-                }
-                else  // 1.5.2 or above > Download Installer (*.jar)
-                {
-                    URLBuilder.AppendFormat("{0}/forge-{0}-installer.jar", versionRaw);
-                    downloadURL = URLBuilder.ToString();
-                    needInstall = true;
-                }
+                builder.AppendFormat("{0}/forge-{0}-universal.zip", forgeVersionRaw);
+                downloadURL = builder.ToString();
+                needInstall = false;
             }
-            URLBuilder.Clear();
-            string installerLocation = needInstall ? $"forge-{versionRaw}-installer.jar" : $"forge-{versionRaw}.jar";
-            installerLocation = Path.Combine(ServerDirectory, installerLocation);
-            int? id = FileDownloadHelper.AddTask(task: task,
-                downloadUrl: downloadURL, filename: installerLocation,
-                percentageMultiplier: needInstall ? 0.5 : 1.0);
-            if (id.HasValue)
+            else  // 1.5.2 or above > Download Installer (*.jar)
             {
-                if (needInstall)
-                {
-                    void AfterDownload(object? sender, int sendingId)
-                    {
-                        if (sendingId != id.Value)
-                            return;
-                        FileDownloadHelper.TaskFinished -= AfterDownload;
-                        try
-                        {
-                            RunInstaller(task, installerLocation, minecraftVersion, version);
-                        }
-                        catch (Exception)
-                        {
-                            task.OnInstallFailed();
-                        }
-                    }
-                    ;
-                    FileDownloadHelper.TaskFinished += AfterDownload;
-                }
+                builder.AppendFormat("{0}/forge-{0}-installer.jar", forgeVersionRaw);
+                downloadURL = builder.ToString();
+                needInstall = true;
+            }
+            builder.Clear();
+            string installerLocation = needInstall ? $"forge-{forgeVersionRaw}-installer.jar" : $"forge-{forgeVersionRaw}.jar";
+            installerLocation = Path.GetFullPath(Path.Combine(ServerDirectory, installerLocation));
+            if (!await FileDownloadHelper.DownloadFileAsync(task, downloadURL, installerLocation, token, percentageMultiplier: needInstall ? 0.5 : 1.0))
+                return false;
+            if (!needInstall)
                 return true;
-            }
-            return false;
+            if (!await RunInstallerAsync(task, installerLocation, token))
+                return false;
+            _minecraftVersion = minecraftVersion;
+            _forgeVersion = forgeVersion;
+            _versionInfo = versionInfo;
+            Thread.MemoryBarrier();
+            OnServerVersionChanged();
+            return true;
         }
 
-
-        private void RunInstaller(InstallTask task, string jarPath, string minecraftVersion, string forgeVersion)
+        private async ValueTask<bool> RunInstallerAsync(InstallTask task, string installerPath, CancellationToken token)
         {
-            ProcessStatus installStatus = new ProcessStatus(50);
-            task.ChangeStatus(installStatus);
+            ProcessStatus status = new ProcessStatus(50);
+            task.ChangeStatus(status);
             task.ChangePercentage(50);
-            JavaRuntimeEnvironment environment = RuntimeEnvironment.JavaDefault;
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, null);
+
+            void OnProcessEnded(object? sender, EventArgs args)
             {
-                FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", jarPath),
-                WorkingDirectory = ServerDirectory,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-            Process? innerProcess = Process.Start(startInfo);
-            if (innerProcess is null)
-            {
-                task.OnInstallFailed();
-                return;
+                if (sender is not ILocalProcess process)
+                    return;
+                process.MessageReceived -= status.OnProcessMessageReceived;
+                process.ProcessEnded -= OnProcessEnded;
+                watcher.MarkAsFinished(true);
             }
-            void StopRequestedHandler(object? sender, EventArgs e)
+
+            using ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
+            process.MessageReceived += status.OnProcessMessageReceived;
+            process.ProcessEnded += OnProcessEnded;
+            if (!process.Start(new LocalProcessStartInfo(
+                    fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+                    arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerPath),
+                    workingDirectory: ServerDirectory
+                )))
+                return false;
+            await watcher.WaitUtilFinishedAsync().ContinueWith(completedTask =>
             {
-                try
-                {
-                    innerProcess.Kill();
-                    innerProcess.Dispose();
-                }
-                catch (Exception)
-                {
-                }
-                task.StopRequested -= StopRequestedHandler;
-            }
-            task.StopRequested += StopRequestedHandler;
-            innerProcess.EnableRaisingEvents = true;
-            innerProcess.BeginOutputReadLine();
-            innerProcess.BeginErrorReadLine();
-            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
-            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
-            innerProcess.Exited += (sender, e) =>
-            {
-                task.StopRequested -= StopRequestedHandler;
-                _minecraftVersion = minecraftVersion;
-                _forgeVersion = forgeVersion;
-                _versionInfo = null;
-                task.OnInstallFinished();
-                task.ChangePercentage(100);
-                innerProcess.Dispose();
-            };
+                process.MessageReceived -= status.OnProcessMessageReceived;
+                process.ProcessEnded -= OnProcessEnded;
+                if (completedTask.IsCanceled)
+                    process.Stop();
+            }, token);
+            return !token.IsCancellationRequested;
         }
 
         /// <inheritdoc/>
@@ -250,21 +216,15 @@ namespace WitherTorch.Core.Servers
         }
 
         private string GetFullVersionString()
-        {
-            ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(_minecraftVersion);
-            if (versions.Length <= 0)
-                return string.Empty;
-            string forgeVersion = _forgeVersion;
-            ForgeVersionEntry? versionData = Array.Find(versions, val => string.Equals(val.version, forgeVersion));
-            if (versionData is null)
-                return string.Empty;
-            return versionData.versionRaw;
-        }
+            => _software.GetForgeVersionEntriesFromMinecraftVersionAsync(_minecraftVersion).Result
+            .Where(val => string.Equals(val.version, _forgeVersion))
+            .Select(val => val.versionRaw)
+            .FirstOrDefault() ?? string.Empty;
 
         /// <inheritdoc/>
         protected override MojangAPI.VersionInfo? BuildVersionInfo()
         {
-            return FindVersionInfo(_minecraftVersion);
+            return FindVersionInfoAsync(_minecraftVersion).Result;
         }
 
         /// <inheritdoc/>

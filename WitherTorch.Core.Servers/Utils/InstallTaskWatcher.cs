@@ -1,45 +1,63 @@
 ﻿using System;
-using System.Net;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Utils;
 
 namespace WitherTorch.Core.Servers.Utils
 {
-    internal sealed class InstallTaskWatcher : IDisposable
+    internal sealed class InstallTaskWatcher<TResult> : IDisposable
     {
-        private bool disposedValue;
-        private readonly WebClient2? client;
+        private readonly WebClient2? _client;
+        private readonly InstallTask _task;
+        private readonly TaskCompletionSource<TResult> _completionSource;
 
-        public InstallTask Task { get; }
+        private bool _disposed;
+
+        public InstallTask Task => _task;
+        public WebClient2? WebClient => _client;
 
         public bool IsStopRequested { get; private set; }
 
         public InstallTaskWatcher(InstallTask task, WebClient2? client)
         {
-            Task = task;
-            this.client = client;
+            _task = task;
+            _client = client;
+            _completionSource = new TaskCompletionSource<TResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
             task.StopRequested += Task_StopRequested;
         }
 
         private void Task_StopRequested(object? sender, EventArgs e)
         {
-            Task.StopRequested -= Task_StopRequested;
             IsStopRequested = true;
+            Dispose();
+
+            WebClient2? client = _client;
             if (client is null)
                 return;
             client.CancelAsync();
             client.Dispose();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Task<TResult> WaitUtilFinishedAsync() => _completionSource.Task;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void MarkAsFinished(TResult result) => _completionSource.TrySetResult(result);
+
+        ~InstallTaskWatcher() => Dispose(disposing: false);
+
         private void Dispose(bool disposing)
         {
-            if (!disposedValue)
+            if (_disposed)
+                return;
+            _disposed = true;
+
+            if (disposing)
             {
-                if (disposing)
-                {
-                    Task.StopRequested -= Task_StopRequested;
-                }
-                disposedValue = true;
+                _task.StopRequested -= Task_StopRequested;
+                _completionSource.TrySetCanceled();
             }
         }
 

@@ -1,14 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using System.Threading;
-using System.Xml;
+using System.Threading.Tasks;
 
 using WitherTorch.Core.Servers.Software;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
-using System.Runtime.CompilerServices;
 
 namespace WitherTorch.Core.Servers
 {
@@ -19,7 +18,7 @@ namespace WitherTorch.Core.Servers
         /// <summary>
         /// 取得與 <see cref="NeoForge"/> 相關聯的軟體上下文
         /// </summary>
-        public static IForgeLikeSoftwareSoftware Software => _software;
+        public static IForgeLikeSoftwareContext Software => _software;
 
         private sealed class ForgeVersionEntry
         {
@@ -34,7 +33,7 @@ namespace WitherTorch.Core.Servers
             }
         }
 
-        private class SoftwareContextPrivate : SoftwareContextBase<NeoForge>, IForgeLikeSoftwareSoftware
+        private class SoftwareContextPrivate : SoftwareContextBase<NeoForge>, IForgeLikeSoftwareContext
         {
             private const string MainSourceDomain = "https://maven.neoforged.net/releases";
             private const string MirrorSourceDomain = "https://maven.creeperhost.net";
@@ -46,9 +45,6 @@ namespace WitherTorch.Core.Servers
             private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>> _versionDictGroupLazy;
             private int _sourceDomainIndex = 0;
 
-            public IReadOnlyDictionary<string, ForgeVersionEntry[]> VersionDictionary
-                => _versionDictGroupLazy.Value.Result.Dictionary;
-
             public string AvailableSourceDomain => _sourceDomainIndex < SourceDomains.Length ? SourceDomains[_sourceDomainIndex] : string.Empty;
 
             public SoftwareContextPrivate() : base(SoftwareId)
@@ -57,25 +53,15 @@ namespace WitherTorch.Core.Servers
                     LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
             }
 
-            public override string[] GetSoftwareVersions()
-                => _versionDictGroupLazy.Value.Result.Keys;
+            public override async Task<IReadOnlyList<string>> GetSoftwareVersionsAsync()
+                => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Keys;
 
-            public string[] GetForgeVersionsFromMinecraftVersion(string minecraftVersion)
-            {
-                ForgeVersionEntry[] versions = _software.GetForgeVersionEntriesFromMinecraftVersion(minecraftVersion);
-                int length = versions.Length;
-                if (length <= 0)
-                    return Array.Empty<string>();
-                string[] result = new string[length];
-                for (int i = 0; i < length; i++)
-                {
-                    result[i] = versions[i].version;
-                }
-                return result;
-            }
+            public async Task<IReadOnlyList<string>> GetForgeVersionsFromMinecraftVersionAsync(string minecraftVersion)
+                => (await GetForgeVersionEntriesFromMinecraftVersionAsync(minecraftVersion)).Select(val => val.version).ToArray();
 
-            public ForgeVersionEntry[] GetForgeVersionEntriesFromMinecraftVersion(string minecraftVersion)
-                => VersionDictionary.TryGetValue(minecraftVersion, out ForgeVersionEntry[]? result) ? result : Array.Empty<ForgeVersionEntry>();
+            public async Task<ForgeVersionEntry[]> GetForgeVersionEntriesFromMinecraftVersionAsync(string minecraftVersion)
+                => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Dictionary.TryGetValue(
+                    minecraftVersion, out ForgeVersionEntry[]? result) ? result : Array.Empty<ForgeVersionEntry>();
 
             public override NeoForge? CreateServerInstance(string serverDirectory) => new NeoForge(serverDirectory);
 
@@ -148,7 +134,7 @@ namespace WitherTorch.Core.Servers
                     }
                 }
 
-                return new ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>(transformedDict, static keys =>
+                return ReadOnlyDictionaryKeyGroup.Create(transformedDict, static keys =>
                     {
                         Array.Sort(keys, MojangAPI.VersionComparer.Instance);
                         Array.Reverse(keys);

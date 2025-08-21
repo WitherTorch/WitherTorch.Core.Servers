@@ -1,8 +1,10 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 
 using WitherTorch.Core.Runtime;
@@ -15,30 +17,16 @@ namespace WitherTorch.Core.Servers.Utils
     /// <summary>
     /// 操作 Spigot 官方的建置工具 (BuildTools) 的類別，此類別無法建立實體
     /// </summary>
-    internal sealed class SpigotBuildTools
+    public static class SpigotBuildTools
     {
-        private delegate void UpdateProgressChangedEventHandler(int progress);
-        public delegate void AfterInstalledEventHandler(string minecraftVersion, int buildNumber);
-
-        private const string manifestListURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/api/xml";
-        private const string downloadURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
-        private static readonly DirectoryInfo workingDirectoryInfo = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, WTServer.SpigotBuildToolsPath));
-        private static readonly FileInfo buildToolFileInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.jar"));
-        private static readonly FileInfo buildToolVersionInfo = new FileInfo(Path.Combine(workingDirectoryInfo.FullName + "./BuildTools.version"));
-
-        private static readonly SpigotBuildTools _instance = new SpigotBuildTools();
-
-        private event EventHandler? UpdateStarted;
-        private event UpdateProgressChangedEventHandler? UpdateProgressChanged;
-        private event EventHandler? UpdateFinished;
+        private const string ManifestListURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/api/xml";
+        private const string DownloadURL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
+        private static readonly string _buildToolDirectoryPath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, WTServer.SpigotBuildToolsPath));
+        private static readonly string _buildToolFilePath = Path.GetFullPath(Path.Combine(_buildToolDirectoryPath, "./BuildTools.jar"));
+        private static readonly string _buildToolVersionDataPath = Path.GetFullPath(Path.Combine(_buildToolDirectoryPath, "./BuildTools.version"));
 
         /// <summary>
-        /// <see cref="SpigotBuildTools"/> 的唯一實例
-        /// </summary>
-        public static SpigotBuildTools Instance => _instance;
-
-        /// <summary>
-        /// Spigot 建置工具的建置目標
+        /// <see cref="InstallAsync(InstallTask, BuildTarget, string, CancellationToken)"/> 的建置目標
         /// </summary>
         public enum BuildTarget
         {
@@ -52,186 +40,169 @@ namespace WitherTorch.Core.Servers.Utils
             Spigot
         }
 
-        private static bool CheckUpdate(out int updatedVersion)
+        private static async ValueTask<int?> CheckUpdateAsync(CancellationToken token)
         {
-            int version = -1;
-            int nowVersion;
-            if (workingDirectoryInfo.Exists)
+            int? currentVersion = null;
+            string directoryPath = _buildToolDirectoryPath;
+            if (Directory.Exists(directoryPath))
             {
-                if (buildToolVersionInfo.Exists && buildToolFileInfo.Exists)
+                string versionDataPath = _buildToolVersionDataPath;
+                if (File.Exists(versionDataPath) && File.Exists(_buildToolFilePath))
                 {
-                    using StreamReader reader = buildToolVersionInfo.OpenText();
-                    string? versionText;
-                    do
+                    using StreamReader reader = new StreamReader(versionDataPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
+                    while (true)
                     {
-                        versionText = reader.ReadLine();
-                    } while (!int.TryParse(versionText, out version));
+                        string? line
+#if NET8_0_OR_GREATER
+                            = await reader.ReadLineAsync(token).ConfigureAwait(continueOnCapturedContext: false);
+#else
+                            = await reader.ReadLineAsync().ConfigureAwait(continueOnCapturedContext: false);
+#endif
+                        if (token.IsCancellationRequested)
+                            return null;
+                        if (line is null)
+                            break;
+                        if (int.TryParse(line, out int parsedVersion))
+                        {
+                            currentVersion = parsedVersion;
+                            break;
+                        }
+                    }
                 }
             }
             else
             {
-                workingDirectoryInfo.Create();
+                Directory.CreateDirectory(directoryPath);
             }
 
-            XmlDocument manifestXML = new XmlDocument();
-            using (WebClient2 client = new WebClient2())
             {
-                client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-                manifestXML.LoadXml(client.DownloadString(manifestListURL));
+                XmlDocument manifestXML = new XmlDocument();
+                using (WebClient2 client = new WebClient2())
+                {
+                    client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
+                    manifestXML.LoadXml(await client.DownloadStringTaskAsync(ManifestListURL).ConfigureAwait(continueOnCapturedContext: false));
+                }
+                string? versionString = manifestXML.SelectSingleNode("//mavenModuleSet/lastSuccessfulBuild/number")?.InnerText;
+                if (!int.TryParse(versionString, out int parsedVersion) || (currentVersion.HasValue && currentVersion.Value >= parsedVersion))
+                    return null;
+                return parsedVersion;
             }
-            string? versionString = manifestXML.SelectSingleNode("//mavenModuleSet/lastSuccessfulBuild/number")?.InnerText;
-            if (versionString is null || versionString.Length <= 0)
-            {
-                updatedVersion = 0;
-                return false;
-            }
-            nowVersion = int.Parse(versionString);
-            if (version < nowVersion)
-            {
-                version = -1;
-            }
-            updatedVersion = nowVersion;
-            return version <= 0;
         }
 
-        private void Update(InstallTask installTask, int minecraftVersion)
+        private static async ValueTask<bool> UpdateAsync(InstallTask task, int buildToolVersion, CancellationToken token)
         {
-            UpdateStarted?.Invoke(this, EventArgs.Empty);
-            WebClient2? client = new WebClient2();
-            void StopRequestedHandler(object? sender, EventArgs e)
-            {
-                try
-                {
-                    client?.CancelAsync();
-                    client?.Dispose();
-                }
-                catch (Exception)
-                {
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-            }
-            ;
-            installTask.StopRequested += StopRequestedHandler;
-            client.DownloadProgressChanged += delegate (object? sender, DownloadProgressChangedEventArgs e)
-            {
-                UpdateProgressChanged?.Invoke(e.ProgressPercentage);
-            };
-            client.DownloadFileCompleted += delegate (object? sender, AsyncCompletedEventArgs e)
-            {
-                client.Dispose();
-                client = null;
-                using (StreamWriter writer = buildToolVersionInfo.CreateText())
-                {
-                    writer.WriteLine(minecraftVersion.ToString());
-                    writer.Flush();
-                    writer.Close();
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-                UpdateFinished?.Invoke(this, EventArgs.Empty);
-            };
+            using WebClient2 client = new WebClient2();
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client);
+
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-            client.DownloadFileAsync(new Uri(downloadURL), buildToolFileInfo.FullName);
+            client.DownloadProgressChanged += UpdateAsync_DownloadProgressChanged;
+            client.DownloadFileCompleted += UpdateAsync_DownloadFileCompleted;
+            client.DownloadFileAsync(new Uri(DownloadURL), _buildToolFilePath, watcher);
+            if (!await watcher.WaitUtilFinishedAsync() || token.IsCancellationRequested)
+                return false;
+
+            using StreamWriter writer = new StreamWriter(_buildToolVersionDataPath, append: false, encoding: Encoding.UTF8);
+            await writer.WriteLineAsync(buildToolVersion.ToString()).ConfigureAwait(continueOnCapturedContext: false);
+#if NET8_0_OR_GREATER
+            await writer.FlushAsync(token).ConfigureAwait(continueOnCapturedContext: false);
+#else
+            await writer.FlushAsync().ConfigureAwait(continueOnCapturedContext: false);
+#endif
+            writer.Close();
+            return true;
         }
 
-        public void Install(InstallTask task, BuildTarget target, string minecraftVersion, int buildNumber, AfterInstalledEventHandler afterInstalledEventHandler)
+        private static void UpdateAsync_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
         {
-            InstallTask installTask = task;
-            SpigotBuildToolsStatus status = new SpigotBuildToolsStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
-            installTask.ChangeStatus(status);
-            bool isStop = false;
-            void StopRequestedHandler(object? sender, EventArgs e)
-            {
-                isStop = true;
-                installTask.StopRequested -= StopRequestedHandler;
-            }
-            ;
-            installTask.StopRequested += StopRequestedHandler;
-            bool hasUpdate = CheckUpdate(out int newVersion);
-            installTask.StopRequested -= StopRequestedHandler;
-            if (isStop) return;
-            if (hasUpdate)
-            {
-                UpdateStarted += (sender, e) =>
-                {
-                    status.State = SpigotBuildToolsStatus.ToolState.Update;
-                };
-                UpdateProgressChanged += (progress) =>
-                {
-                    status.Percentage = progress;
-                    installTask.ChangePercentage(progress / 2);
-                };
-                UpdateFinished += (sender, e) =>
-                {
-                    installTask.ChangePercentage(50);
-                    installTask.OnStatusChanged();
-                    DoInstall(installTask, status, target, minecraftVersion, buildNumber, afterInstalledEventHandler);
-                };
-                Update(installTask, newVersion);
-            }
-            else
-            {
-                installTask.ChangePercentage(50);
-                installTask.OnStatusChanged();
-                DoInstall(installTask, status, target, minecraftVersion, buildNumber, afterInstalledEventHandler);
-            }
-        }
-
-        private void DoInstall(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target, 
-            string minecraftVersion, int buildNumber, AfterInstalledEventHandler afterInstalledEventHandler)
-        {
-            InstallTask installTask = task;
-            SpigotBuildToolsStatus installStatus = status;
-            installStatus.State = SpigotBuildToolsStatus.ToolState.Build;
-            JavaRuntimeEnvironment environment = RuntimeEnvironment.JavaDefault;
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = environment.JavaPath,
-                Arguments = string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --final-name {3} --output-dir \"{4}\"",
-                    buildToolFileInfo.FullName, minecraftVersion, 
-                    GetBuildTargetStringAndFilename(target, minecraftVersion, out string targetFilename), targetFilename, installTask.Owner.ServerDirectory),
-                WorkingDirectory = workingDirectoryInfo.FullName,
-                CreateNoWindow = true,
-                ErrorDialog = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-            Process? innerProcess = Process.Start(startInfo);
-            if (innerProcess is null)
-            {
-                task.OnInstallFailed();
+            if (e.UserState is not InstallTaskWatcher<bool> watcher)
                 return;
-            }
-            innerProcess.EnableRaisingEvents = true;
-            innerProcess.BeginOutputReadLine();
-            innerProcess.BeginErrorReadLine();
-            void StopRequestedHandler(object? sender, EventArgs e)
-            {
-                try
-                {
-                    innerProcess.Kill();
-                }
-                catch (Exception)
-                {
-                }
-                installTask.StopRequested -= StopRequestedHandler;
-            }
-            ;
-            installTask.StopRequested += StopRequestedHandler;
-            innerProcess.OutputDataReceived += installStatus.OnProcessMessageReceived;
-            innerProcess.ErrorDataReceived += installStatus.OnProcessMessageReceived;
-            innerProcess.Exited += (sender, e) =>
-            {
-                afterInstalledEventHandler.Invoke(minecraftVersion, buildNumber);
-                installTask.StopRequested -= StopRequestedHandler;
-                installTask.OnInstallFinished();
-                installTask.ChangePercentage(100);
-                innerProcess.Dispose();
-            };
+            InstallTask task = watcher.Task;
+            if (task.Status is not SpigotBuildToolsStatus status || status.State != SpigotBuildToolsStatus.ToolState.Update)
+                return;
+            double percentage = e.ProgressPercentage;
+            status.Percentage = percentage;
+            task.ChangePercentage(percentage * 0.5);
         }
 
+        private static void UpdateAsync_DownloadFileCompleted(object? sender, AsyncCompletedEventArgs e)
+        {
+            if (sender is not WebClient2 client || e.UserState is not InstallTaskWatcher<bool> watcher)
+                return;
+            client.DownloadProgressChanged -= UpdateAsync_DownloadProgressChanged;
+            client.DownloadFileCompleted -= UpdateAsync_DownloadFileCompleted;
+            watcher.MarkAsFinished(!e.Cancelled && e.Error is null);
+        }
+
+        /// <summary>
+        /// 啟動 <see cref="SpigotServerBase"/> 伺服器的固定安裝流程
+        /// </summary>
+        /// <param name="task">要用於傳輸安裝時期資訊的 <see cref="InstallTask"/> 物件</param>
+        /// <param name="target">要建置的目標類型</param>
+        /// <param name="minecraftVersion">要建置的目標版本</param>
+        /// <param name="token">用於控制非同步操作是否取消的 <see cref="CancellationToken"/> 結構</param>
+        /// <returns>一個 <see cref="ValueTask"/>，在非同步工作結束後可取得是否成功運行完整個安裝流程的結果</returns>
+        public static async ValueTask<bool> InstallAsync(InstallTask task, BuildTarget target, string minecraftVersion, CancellationToken token)
+        {
+            if (token.IsCancellationRequested)
+                return false;
+            SpigotBuildToolsStatus status = new SpigotBuildToolsStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
+            task.ChangeStatus(status);
+            int? newBuildToolVersion = await CheckUpdateAsync(token);
+            if (newBuildToolVersion.HasValue)
+            {
+                status.State = SpigotBuildToolsStatus.ToolState.Update;
+                status.Percentage = 0;
+                if (!await UpdateAsync(task, newBuildToolVersion.Value, token))
+                    return false;
+                status.Percentage = 100;
+            }
+            else if (token.IsCancellationRequested)
+                return false;
+            task.ChangePercentage(50);
+            task.OnStatusChanged();
+            if (!await RunBuildToolAsync(task, status, target, minecraftVersion, token))
+                return false;
+            task.ChangePercentage(100);
+            return true;
+        }
+
+        private static async ValueTask<bool> RunBuildToolAsync(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target,
+            string minecraftVersion, CancellationToken token)
+        {
+            status.State = SpigotBuildToolsStatus.ToolState.Build;
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, null);
+
+            void OnProcessEnded(object? sender, EventArgs args)
+            {
+                if (sender is not ILocalProcess process)
+                    return;
+                process.MessageReceived -= status.OnProcessMessageReceived;
+                process.ProcessEnded -= OnProcessEnded;
+                watcher.MarkAsFinished(true);
+            }
+
+            using ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
+            process.MessageReceived += status.OnProcessMessageReceived;
+            process.ProcessEnded += OnProcessEnded;
+            if (!process.Start(new LocalProcessStartInfo(
+                    fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+                    arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --final-name {3} --output-dir \"{4}\"",
+                        _buildToolFilePath, minecraftVersion,
+                        GetBuildTargetStringAndFilename(target, minecraftVersion, out string targetFilename), targetFilename, task.Owner.ServerDirectory),
+                    workingDirectory: _buildToolDirectoryPath
+                )))
+                return false;
+            await watcher.WaitUtilFinishedAsync().ContinueWith(completedTask =>
+            {
+                process.MessageReceived -= status.OnProcessMessageReceived;
+                process.ProcessEnded -= OnProcessEnded;
+                if (completedTask.IsCanceled)
+                    process.Stop();
+            }, token);
+            return !token.IsCancellationRequested;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string GetBuildTargetStringAndFilename(BuildTarget target, string minecraftVersion, out string targetFilename)
         {
             switch (target)
