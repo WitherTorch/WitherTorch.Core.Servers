@@ -6,7 +6,7 @@ using WitherTorch.Core.Software;
 namespace WitherTorch.Core.Servers.Software
 {
     /// <summary>
-    /// 表示一個與 Fabric 或與之相似之伺服器軟體相關聯的介面
+    /// 表示一個 Fabric 或與之相似之伺服器軟體相關聯的介面
     /// </summary>
     public interface IFabricLikeSoftwareContext : ISoftwareContext
     {

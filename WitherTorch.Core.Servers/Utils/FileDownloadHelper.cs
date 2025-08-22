@@ -14,8 +14,22 @@ namespace WitherTorch.Core.Servers.Utils
     /// <summary>
     /// 簡易的下載工具類別，可自動校驗雜湊和處理 <see cref="InstallTask"/> 上的校驗失敗處理
     /// </summary>
-    internal static partial class FileDownloadHelper
+    public static partial class FileDownloadHelper
     {
+        /// <summary>
+        /// 下載位於 <paramref name="sourceAddress"/> 的檔案，並將其儲存至 <paramref name="targetFilename"/> 中
+        /// </summary>
+        /// <param name="task">要用於追蹤進度的 <see cref="InstallTask"/> 物件</param>
+        /// <param name="sourceAddress">檔案的來源網址</param>
+        /// <param name="targetFilename">檔案的目標位置</param>
+        /// <param name="cancellationToken">用於控制非同步操作是否取消的 <see cref="CancellationToken"/> 結構</param>
+        /// <param name="webClient">用於下載檔案的 <see cref="WebClient2"/> 物件，如果此項為 <see langword="null"/> 的話則會自動於內部建立專用的物件</param>
+        /// <param name="initPercentage">用於呼叫 <see cref="InstallTask.ChangePercentage(double)"/> 的初始進度數值</param>
+        /// <param name="percentageMultiplier">用於呼叫 <see cref="InstallTask.ChangePercentage(double)"/> 的進度增加倍率</param>
+        /// <param name="hash">用於校驗檔案完整性的雜湊 <see langword="byte[]"/> 陣列</param>
+        /// <param name="hashMethod">用於校驗檔案完整性的雜湊方法</param>
+        /// <returns>一個工作。當工作完成時，其結果將指示檔案是否下載成功</returns>
+        /// <exception cref="ArgumentOutOfRangeException"/>
         public static async ValueTask<bool> DownloadFileAsync(InstallTask task, string sourceAddress, string targetFilename,
             CancellationToken cancellationToken, WebClient2? webClient = null,
             double initPercentage = 0.0, double percentageMultiplier = 1.0,
@@ -39,7 +53,7 @@ namespace WitherTorch.Core.Servers.Utils
             }
             try
             {
-                if (!await DownloadFileCoreAsync(task, webClient, sourceUri, tempFileName, closure) || cancellationToken.IsCancellationRequested)
+                if (!await DownloadFileCoreAsync(task, webClient, sourceUri, tempFileName, closure, cancellationToken) || cancellationToken.IsCancellationRequested)
                     return false;
                 if (hash is not null && hashMethod != HashHelper.HashMethod.None)
                 {
@@ -67,7 +81,7 @@ namespace WitherTorch.Core.Servers.Utils
                         if (ignoreHashMismatch)
                             break;
                         File.Delete(tempFileName);
-                        if (!await DownloadFileCoreAsync(task, webClient, sourceUri, tempFileName, closure) || cancellationToken.IsCancellationRequested)
+                        if (!await DownloadFileCoreAsync(task, webClient, sourceUri, tempFileName, closure, cancellationToken) || cancellationToken.IsCancellationRequested)
                             return false;
                     } while (true);
                 }
@@ -82,12 +96,13 @@ namespace WitherTorch.Core.Servers.Utils
             return !cancellationToken.IsCancellationRequested;
         }
 
-        private static async ValueTask<bool> DownloadFileCoreAsync(InstallTask task, WebClient2 webClient, Uri sourceUri, string targetFilename, DownloadFileClosure closure)
+        private static async ValueTask<bool> DownloadFileCoreAsync(InstallTask task, WebClient2 webClient, 
+            Uri sourceUri, string targetFilename, DownloadFileClosure closure, CancellationToken cancellationToken)
         {
             DownloadStatus status = new DownloadStatus(sourceUri.AbsoluteUri);
             task.ChangePercentage(closure.InitialPercentage);
             task.ChangeStatus(status);
-            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, webClient);
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, webClient, cancellationToken);
             closure.SubscribeEvents(webClient);
             try
             {

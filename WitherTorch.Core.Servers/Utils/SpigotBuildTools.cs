@@ -92,7 +92,7 @@ namespace WitherTorch.Core.Servers.Utils
         private static async ValueTask<bool> UpdateAsync(InstallTask task, int buildToolVersion, CancellationToken token)
         {
             using WebClient2 client = new WebClient2();
-            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client);
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client, token);
 
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
             client.DownloadProgressChanged += UpdateAsync_DownloadProgressChanged;
@@ -166,41 +166,23 @@ namespace WitherTorch.Core.Servers.Utils
             return true;
         }
 
-        private static async ValueTask<bool> RunBuildToolAsync(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target,
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ValueTask<bool> RunBuildToolAsync(InstallTask task, SpigotBuildToolsStatus status, BuildTarget target,
             string minecraftVersion, CancellationToken token)
         {
             status.State = SpigotBuildToolsStatus.ToolState.Build;
-            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, null);
-
-            void OnProcessEnded(object? sender, EventArgs args)
-            {
-                if (sender is not ILocalProcess process)
-                    return;
-                process.MessageReceived -= status.OnProcessMessageReceived;
-                process.ProcessEnded -= OnProcessEnded;
-                watcher.MarkAsFinished(true);
-            }
-
-            using ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
-            process.MessageReceived += status.OnProcessMessageReceived;
-            process.ProcessEnded += OnProcessEnded;
-            if (!process.Start(new LocalProcessStartInfo(
-                    fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
-                    arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --final-name {3} --output-dir \"{4}\"",
-                        _buildToolFilePath, minecraftVersion,
-                        GetBuildTargetStringAndFilename(target, minecraftVersion, out string targetFilename), targetFilename, task.Owner.ServerDirectory),
-                    workingDirectory: _buildToolDirectoryPath
-                )))
-                return false;
-            await watcher.WaitUtilFinishedAsync().ContinueWith(completedTask =>
-            {
-                process.MessageReceived -= status.OnProcessMessageReceived;
-                process.ProcessEnded -= OnProcessEnded;
-                if (completedTask.IsCanceled)
-                    process.Stop();
-            }, token);
-            return !token.IsCancellationRequested;
+            return ProcessHelper.RunProcessAsync(task, status, BuildInstallerStartInfo(task, target, minecraftVersion), token);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, BuildTarget target, string minecraftVersion)
+            => new LocalProcessStartInfo(
+                fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+                arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --final-name {3} --output-dir \"{4}\"",
+                    _buildToolFilePath, minecraftVersion,
+                    GetBuildTargetStringAndFilename(target, minecraftVersion, out string targetFilename), targetFilename, task.Owner.ServerDirectory),
+                workingDirectory: _buildToolDirectoryPath);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string GetBuildTargetStringAndFilename(BuildTarget target, string minecraftVersion, out string targetFilename)

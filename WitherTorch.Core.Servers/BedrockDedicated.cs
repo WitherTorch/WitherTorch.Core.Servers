@@ -1,11 +1,15 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+
+using Ionic.Crc;
+using Ionic.Zip;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Runtime;
@@ -22,6 +26,9 @@ namespace WitherTorch.Core.Servers
     public sealed partial class BedrockDedicated : LocalServerBase
     {
         private const string SoftwareId = "bedrockDedicated";
+        private const int DecompressPercentageBase = 50;
+        private const int DefaultFileStreamBufferSize = 4096;
+        private const int DefaultPooledBufferSize = 131072; // 原始值是 81920，但因為 ArrayPool 只會取二的次方大小，所以選擇了 131072 作為實際大小
 
         private string _version = string.Empty;
 
@@ -57,7 +64,7 @@ namespace WitherTorch.Core.Servers
             if (!(await _software.GetSoftwareVersionDictionaryAsync()).TryGetValue(version, out string? downloadUrl))
                 return false;
             using WebClient2 client = new WebClient2();
-            using InstallTaskWatcher<byte[]?> watcher = new InstallTaskWatcher<byte[]?>(task, client);
+            using InstallTaskWatcher<byte[]?> watcher = new InstallTaskWatcher<byte[]?>(task, client, token);
             task.ChangeStatus(new DownloadStatus(downloadUrl, 0));
             client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
             client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
@@ -67,8 +74,7 @@ namespace WitherTorch.Core.Servers
                 return false;
             if (task.Status is DownloadStatus downloadStatus)
                 downloadStatus.Percentage = 100;
-            task.ChangePercentage(50);
-            if (!TryDecompressData(task, data, token))
+            if (!await TryDecompressData(task, data, token))
                 return false;
             task.ChangePercentage(100);
             _version = task.Version;
@@ -99,57 +105,120 @@ namespace WitherTorch.Core.Servers
             watcher.MarkAsFinished(e.Result);
         }
 
-        private bool TryDecompressData(InstallTask task, byte[] data, CancellationToken token)
+        private async ValueTask<bool> TryDecompressData(InstallTask task, byte[] data, CancellationToken token)
         {
-            using MemoryStream stream = new MemoryStream(data);
-            try
-            {
-                using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, true))
-                {
-                    DecompessionStatus status = new DecompessionStatus();
-                    task.ChangeStatus(status);
-                    ReadOnlyCollection<ZipArchiveEntry> entries = archive.Entries;
-                    IEnumerator<ZipArchiveEntry> enumerator = entries.GetEnumerator();
-                    int currentCount = 0;
-                    int count = entries.Count;
-                    while (enumerator.MoveNext() && !token.IsCancellationRequested)
-                    {
-                        ZipArchiveEntry entry = enumerator.Current;
-                        string filePath = Path.GetFullPath(Path.Combine(ServerDirectory, entry.FullName));
-                        if (filePath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)) // Is Directory
-                        {
-                            if (!Directory.Exists(filePath))
-                                Directory.CreateDirectory(filePath);
-                        }
-                        else // Is File
-                        {
-                            switch (entry.FullName)
-                            {
-                                case "allowlist.json":
-                                case "whitelist.json":
-                                case "permissions.json":
-                                case "server.properties":
-                                    if (File.Exists(filePath))
-                                        break;
+            DecompressionStatus status = new DecompressionStatus();
+            task.ChangeStatus(status);
+            task.ChangePercentage(DecompressPercentageBase);
+            using Stream stream = new MemoryStream(data, writable: false);
+            using ZipFile file = ZipFile.Read(stream, new ReadOptions() { Encoding = Encoding.UTF8 });
+            ICollection<ZipEntry> entries = file.Entries;
+            int entryCount = entries.Count;
+            StrongBox<int> extractCounterBox = new StrongBox<int>();
+            using SemaphoreSlim extractingSemaphore = new SemaphoreSlim(1, 1);
+            using SemaphoreSlim counterSemaphore = new SemaphoreSlim(1, 1);
+            IEnumerable<Task> extractTasks = entries.Select(entry => FilterAndExtractFileAsync(task, entry,
+                extractingSemaphore, counterSemaphore, extractCounterBox, entryCount, token));
+            await Task.WhenAll(extractTasks).ConfigureAwait(continueOnCapturedContext: false);
+            return !token.IsCancellationRequested;
+        }
 
-                                    goto default;
-                                default:
-                                    entry.ExtractToFile(filePath, true);
-                                    break;
-                            }
-                        }
-                        currentCount++;
-                        double percentage = currentCount * 100.0 / count;
-                        status.Percentage = percentage;
-                        task.ChangePercentage(50.0 + percentage * 0.5);
+        private async Task FilterAndExtractFileAsync(InstallTask task, ZipEntry entry,
+            SemaphoreSlim extractingSemaphore, SemaphoreSlim countingSemaphore,
+            StrongBox<int> extractCounterBox, int entryCount, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            string filename = entry.FileName;
+            string extractFilename = Path.GetFullPath(Path.Combine(ServerDirectory, filename));
+            if (CheckExtractFilename(filename, extractFilename))
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (extractFilename.EndsWithAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) // Is Directory
+                {
+                    if (!Directory.Exists(extractFilename))
+                        Directory.CreateDirectory(extractFilename);
+                }
+                else // Is File
+                {
+                    string? directoryPath = Path.GetDirectoryName(extractFilename);
+                    if (directoryPath is not null && !Directory.Exists(directoryPath))
+                        Directory.CreateDirectory(directoryPath);
+                    token.ThrowIfCancellationRequested();
+                    await extractingSemaphore.WaitAsync(token);
+                    try
+                    {
+                        token.ThrowIfCancellationRequested();
+                        await ExtractFileAsync(entry, extractFilename, token);
+                    }
+                    finally
+                    {
+                        extractingSemaphore.Release();
                     }
                 }
-                stream.Close();
-                return !token.IsCancellationRequested;
+            }
+
+            token.ThrowIfCancellationRequested();
+            await countingSemaphore.WaitAsync(token);
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                if (task.Status is not DecompressionStatus status)
+                    return;
+                int counter = ++extractCounterBox.Value;
+                double percentage = counter * 1.0 / entryCount;
+                status.Percentage = percentage * 100.0;
+                task.ChangePercentage(DecompressPercentageBase + percentage * (100 - DecompressPercentageBase));
             }
             finally
             {
-                GC.Collect(generation: 1, GCCollectionMode.Optimized, blocking: false, compacting: false);
+                countingSemaphore.Release();
+            }
+        }
+
+        private static bool CheckExtractFilename(string filename, string destination)
+            => filename switch
+            {
+                "allowlist.json" or "whitelist.json" or
+                "permissions.json" or "server.properties" => !File.Exists(destination),
+                _ => true,
+            };
+
+        private static async Task ExtractFileAsync(ZipEntry entry, string targetFilename, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+
+            using (Stream destinationStream = new FileStream(targetFilename, FileMode.Create, FileAccess.Write, FileShare.Read, DefaultFileStreamBufferSize, useAsync: true))
+            {
+                token.ThrowIfCancellationRequested();
+                using CrcCalculatorStream sourceStream = entry.OpenReader();
+                await CopyToAsync(sourceStream, destinationStream, token);
+            }
+            File.SetCreationTime(targetFilename, entry.CreationTime);
+            File.SetLastWriteTime(targetFilename, entry.ModifiedTime);
+            File.SetLastAccessTime(targetFilename, entry.AccessedTime);
+        }
+
+        private static async ValueTask CopyToAsync(Stream source, Stream destination, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+
+            ArrayPool<byte> pool = ArrayPool<byte>.Shared;
+            byte[] buffer = pool.Rent(DefaultPooledBufferSize);
+            try
+            {
+                while (true)
+                {
+                    int bytesWritten = await source.ReadAsync(buffer, 0, DefaultPooledBufferSize, token);
+                    if (bytesWritten <= 0)
+                        break;
+                    token.ThrowIfCancellationRequested();
+                    await destination.WriteAsync(buffer, 0, bytesWritten, token);
+                }
+            }
+            finally
+            {
+                pool.Return(buffer);
             }
         }
 

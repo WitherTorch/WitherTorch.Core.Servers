@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -65,7 +66,7 @@ namespace WitherTorch.Core.Servers.Utils
         private static async ValueTask<bool> UpdateAsync(InstallTask task, string installerVersion, CancellationToken token)
         {
             using WebClient2 client = new WebClient2();
-            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client);
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client, token);
 
             client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
             client.DownloadProgressChanged += UpdateAsync_DownloadProgressChanged;
@@ -131,39 +132,20 @@ namespace WitherTorch.Core.Servers.Utils
             return true;
         }
 
-        private static async ValueTask<bool> RunInstallerAsync(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion,
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ValueTask<bool> RunInstallerAsync(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion,
             CancellationToken token)
         {
             status.State = SpigotBuildToolsStatus.ToolState.Build;
-            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, null);
-
-            void OnProcessEnded(object? sender, EventArgs args)
-            {
-                if (sender is not ILocalProcess process)
-                    return;
-                process.MessageReceived -= status.OnProcessMessageReceived;
-                process.ProcessEnded -= OnProcessEnded;
-                watcher.MarkAsFinished(true);
-            }
-
-            using ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
-            process.MessageReceived += status.OnProcessMessageReceived;
-            process.ProcessEnded += OnProcessEnded;
-            if (!process.Start(new LocalProcessStartInfo(
-                    fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
-                    arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft",
-                        _installerFilePath, minecraftVersion, fabricLoaderVersion, task.Owner.ServerDirectory),
-                    workingDirectory: _installerDirectoryPath
-                )))
-                return false;
-            await watcher.WaitUtilFinishedAsync().ContinueWith(completedTask =>
-            {
-                process.MessageReceived -= status.OnProcessMessageReceived;
-                process.ProcessEnded -= OnProcessEnded;
-                if (completedTask.IsCanceled)
-                    process.Stop();
-            }, token);
-            return !token.IsCancellationRequested;
+            return ProcessHelper.RunProcessAsync(task, status, BuildInstallerStartInfo(task, minecraftVersion, fabricLoaderVersion), token);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string minecraftVersion, string fabricLoaderVersion)
+            => new LocalProcessStartInfo(
+                fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+                arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft",
+                    _installerFilePath, minecraftVersion, fabricLoaderVersion, task.Owner.ServerDirectory),
+                workingDirectory: _installerDirectoryPath);
     }
 }

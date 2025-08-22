@@ -15,7 +15,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// NeoForge 伺服器
     /// </summary>
-    public partial class NeoForge : JavaEditionServerBase
+    public partial class NeoForge : JavaEditionServerBase, IModLoaderServer
     {
         private const string LegacyDownloadURL = "{0}/net/neoforged/forge/{1}/forge-{1}-installer.jar";
         private const string DownloadURL = "{0}/net/neoforged/neoforge/{1}/neoforge-{1}-installer.jar";
@@ -66,15 +66,13 @@ namespace WitherTorch.Core.Servers
             return new InstallTask(this, version, RunInstallServerTaskAsync);
         }
 
-        /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
-        /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
-        /// <param name="neoforgeVersion">要更改的 NeoForge 版本</param>
-        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string neoforgeVersion)
+        /// <inheritdoc cref="IModLoaderServer.GenerateInstallServerTask(string, string)"/>
+        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string modLoaderVersion)
         {
-            if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(neoforgeVersion))
+            if (string.IsNullOrEmpty(minecraftVersion) || string.IsNullOrEmpty(modLoaderVersion))
                 return null;
-            return new InstallTask(this, minecraftVersion + "-" + neoforgeVersion,
-                (task, token) => RunInstallServerTaskAsync(task, minecraftVersion, neoforgeVersion, token));
+            return new InstallTask(this, minecraftVersion + "-" + modLoaderVersion,
+                (task, token) => RunInstallServerTaskAsync(task, minecraftVersion, modLoaderVersion, token));
         }
 
         private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
@@ -124,40 +122,16 @@ namespace WitherTorch.Core.Servers
             return true;
         }
 
-        private async ValueTask<bool> RunInstallerAsync(InstallTask task, string installerPath, CancellationToken token)
-        {
-            ProcessStatus status = new ProcessStatus(50);
-            task.ChangeStatus(status);
-            task.ChangePercentage(50);
-            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, null);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ValueTask<bool> RunInstallerAsync(InstallTask task, string installerPath, CancellationToken token)
+            => ProcessHelper.RunProcessAsync(task, 50.0, BuildInstallerStartInfo(task, installerPath), token);
 
-            void OnProcessEnded(object? sender, EventArgs args)
-            {
-                if (sender is not ILocalProcess process)
-                    return;
-                process.MessageReceived -= status.OnProcessMessageReceived;
-                process.ProcessEnded -= OnProcessEnded;
-                watcher.MarkAsFinished(true);
-            }
-
-            using ILocalProcess process = WTServer.LocalProcessFactory.Invoke();
-            process.MessageReceived += status.OnProcessMessageReceived;
-            process.ProcessEnded += OnProcessEnded;
-            if (!process.Start(new LocalProcessStartInfo(
-                    fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
-                    arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerPath),
-                    workingDirectory: ServerDirectory
-                )))
-                return false;
-            await watcher.WaitUtilFinishedAsync().ContinueWith(completedTask =>
-            {
-                process.MessageReceived -= status.OnProcessMessageReceived;
-                process.ProcessEnded -= OnProcessEnded;
-                if (completedTask.IsCanceled)
-                    process.Stop();
-            }, token);
-            return !token.IsCancellationRequested;
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerPath)
+            => new LocalProcessStartInfo(
+                fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+                arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerPath),
+                workingDirectory: task.Owner.ServerDirectory);
 
         /// <inheritdoc/>
         public override string GetReadableVersion()

@@ -14,7 +14,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Fabric 伺服器
     /// </summary>
-    public partial class Fabric : JavaEditionServerBase
+    public partial class Fabric : JavaEditionServerBase, IModLoaderServer
     {
         private const string SoftwareId = "fabric";
 
@@ -59,15 +59,13 @@ namespace WitherTorch.Core.Servers
             return new InstallTask(this, version, RunInstallServerTaskAsync);
         }
 
-        /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
-        /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
-        /// <param name="fabricLoaderVersion">要更改的 Fabric Loader 版本</param>
-        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string fabricLoaderVersion)
+        /// <inheritdoc cref="IModLoaderServer.GenerateInstallServerTask(string, string)"/>
+        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string modLoaderVersion)
         {
-            if (string.IsNullOrWhiteSpace(minecraftVersion) || string.IsNullOrWhiteSpace(fabricLoaderVersion))
+            if (string.IsNullOrWhiteSpace(minecraftVersion) || string.IsNullOrWhiteSpace(modLoaderVersion))
                 return null;
-            return new InstallTask(this, minecraftVersion + "-" + fabricLoaderVersion,
-                (task, token) => RunInstallServerTaskCoreAsync(task, minecraftVersion, fabricLoaderVersion, token));
+            return new InstallTask(this, minecraftVersion + "-" + modLoaderVersion,
+                (task, token) => RunInstallServerTaskCoreAsync(task, minecraftVersion, modLoaderVersion, token));
         }
 
         private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)

@@ -14,7 +14,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Quilt 伺服器
     /// </summary>
-    public sealed partial class Quilt : JavaEditionServerBase
+    public sealed partial class Quilt : JavaEditionServerBase, IModLoaderServer
     {
         private const string SoftwareId = "quilt";
 
@@ -51,8 +51,6 @@ namespace WitherTorch.Core.Servers
         /// <inheritdoc/>
         public override string GetSoftwareId() => SoftwareId;
 
-
-
         /// <inheritdoc/>
         public override InstallTask? GenerateInstallServerTask(string version)
         {
@@ -61,15 +59,13 @@ namespace WitherTorch.Core.Servers
             return new InstallTask(this, version, RunInstallServerTaskAsync);
         }
 
-        /// <inheritdoc cref="GenerateInstallServerTask(string)"/>
-        /// <param name="minecraftVersion">要更改的 Minecraft 版本</param>
-        /// <param name="quiltLoaderVersion">要更改的 Quilt Loader 版本</param>
-        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string quiltLoaderVersion)
+        /// <inheritdoc cref="IModLoaderServer.GenerateInstallServerTask(string, string)"/>
+        public InstallTask? GenerateInstallServerTask(string minecraftVersion, string modLoaderVersion)
         {
-            if (string.IsNullOrWhiteSpace(minecraftVersion) || string.IsNullOrWhiteSpace(quiltLoaderVersion))
+            if (string.IsNullOrWhiteSpace(minecraftVersion) || string.IsNullOrWhiteSpace(modLoaderVersion))
                 return null;
-            return new InstallTask(this, minecraftVersion + "-" + quiltLoaderVersion,
-                (task, token) => RunInstallServerTaskCoreAsync(task, minecraftVersion, quiltLoaderVersion, token));
+            return new InstallTask(this, minecraftVersion + "-" + modLoaderVersion,
+                (task, token) => RunInstallServerTaskCoreAsync(task, minecraftVersion, modLoaderVersion, token));
         }
 
         private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
