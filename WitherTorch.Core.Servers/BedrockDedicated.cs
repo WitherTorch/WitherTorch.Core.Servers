@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -27,8 +27,6 @@ namespace WitherTorch.Core.Servers
     {
         private const string SoftwareId = "bedrockDedicated";
         private const int DecompressPercentageBase = 50;
-        private const int DefaultFileStreamBufferSize = 4096;
-        private const int DefaultPooledBufferSize = 131072; // 原始值是 81920，但因為 ArrayPool 只會取二的次方大小，所以選擇了 131072 作為實際大小
 
         private string _version = string.Empty;
 
@@ -61,21 +59,31 @@ namespace WitherTorch.Core.Servers
         private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
         {
             string version = task.Version;
-            if (!(await _software.GetSoftwareVersionDictionaryAsync()).TryGetValue(version, out string? downloadUrl))
+            if (!(await _software.GetSoftwareVersionDictionaryAsync()).TryGetValue(version, out string? downloadUrl) || 
+                !Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadAddress))
                 return false;
-            using WebClient2 client = new WebClient2();
-            using InstallTaskWatcher<byte[]?> watcher = new InstallTaskWatcher<byte[]?>(task, client, token);
-            task.ChangeStatus(new DownloadStatus(downloadUrl, 0));
-            client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
-            client.DownloadDataCompleted += InstallSoftware_DownloadDataCompleted;
-            client.DownloadDataAsync(new Uri(downloadUrl), watcher);
-            byte[]? data = await watcher.WaitUtilFinishedAsync();
-            if (data is null || token.IsCancellationRequested)
-                return false;
-            if (task.Status is DownloadStatus downloadStatus)
-                downloadStatus.Percentage = 100;
-            if (!await TryDecompressData(task, data, token))
-                return false;
+            using (ITempFileInfo tempFileInfo = WTServer.TempFileFactory.Invoke())
+            {
+                using WebClient2 client = new WebClient2();
+                using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client, token);
+                task.ChangeStatus(new DownloadStatus(downloadUrl, 0));
+                client.DownloadProgressChanged += InstallSoftware_DownloadProgressChanged;
+                client.DownloadFileCompleted += InstallSoftware_DownloadFileCompleted;
+                client.DownloadFileAsync(downloadAddress, tempFileInfo, watcher);
+                if (!await watcher.WaitUtilFinishedAsync() || token.IsCancellationRequested)
+                    return false;
+                if (task.Status is DownloadStatus downloadStatus)
+                    downloadStatus.Percentage = 100;
+                try
+                {
+                    if (!await TryDecompressPackageAsync(task, tempFileInfo, token))
+                        return false;
+                }
+                finally
+                {
+                    GC.Collect(generation: 1, GCCollectionMode.Forced, blocking: true, compacting: true);
+                }
+            }
             task.ChangePercentage(100);
             _version = task.Version;
             OnServerVersionChanged();
@@ -84,7 +92,7 @@ namespace WitherTorch.Core.Servers
 
         private void InstallSoftware_DownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
         {
-            if (e.UserState is not InstallTaskWatcher<byte[]?> watcher)
+            if (e.UserState is not InstallTaskWatcher<bool> watcher)
                 return;
             InstallTask task = watcher.Task;
             if (task.Status is not DownloadStatus status)
@@ -94,58 +102,82 @@ namespace WitherTorch.Core.Servers
             task.ChangePercentage(percentage * 0.5);
         }
 
-        private void InstallSoftware_DownloadDataCompleted(object? sender, DownloadDataCompletedEventArgs e)
+        private void InstallSoftware_DownloadFileCompleted(object? sender, AsyncCompletedEventArgs e)
         {
             if (sender is not WebClient2 client)
                 return;
             client.DownloadProgressChanged -= InstallSoftware_DownloadProgressChanged;
-            client.DownloadDataCompleted -= InstallSoftware_DownloadDataCompleted;
-            if (e.UserState is not InstallTaskWatcher<byte[]?> watcher)
+            client.DownloadDataCompleted -= InstallSoftware_DownloadFileCompleted;
+            if (e.UserState is not InstallTaskWatcher<bool> watcher)
                 return;
-            watcher.MarkAsFinished(e.Result);
+            watcher.MarkAsFinished(!e.Cancelled && e.Error is null);
         }
 
-        private async ValueTask<bool> TryDecompressData(InstallTask task, byte[] data, CancellationToken token)
+        private async ValueTask<bool> TryDecompressPackageAsync(InstallTask task, ITempFileInfo tempFile, CancellationToken token)
         {
             DecompressionStatus status = new DecompressionStatus();
             task.ChangeStatus(status);
             task.ChangePercentage(DecompressPercentageBase);
-            using Stream stream = new MemoryStream(data, writable: false);
-            using ZipFile file = ZipFile.Read(stream, new ReadOptions() { Encoding = Encoding.UTF8 });
-            ICollection<ZipEntry> entries = file.Entries;
-            int entryCount = entries.Count;
+            using ThreadLocal<StreamedZipFile> fileLocal = new ThreadLocal<StreamedZipFile>(
+                () => new StreamedZipFile(tempFile, Constants.DefaultFileStreamBufferSize),
+                trackAllValues: true);
+            int entryCount = fileLocal.Value!.Count;
             StrongBox<int> extractCounterBox = new StrongBox<int>();
-            using SemaphoreSlim extractingSemaphore = new SemaphoreSlim(1, 1);
             using SemaphoreSlim counterSemaphore = new SemaphoreSlim(1, 1);
-            IEnumerable<Task> extractTasks = entries.Select(entry => FilterAndExtractFileAsync(task, entry,
-                extractingSemaphore, counterSemaphore, extractCounterBox, entryCount, token));
+            using SemaphoreSlim createDirectorySemaphore = new SemaphoreSlim(1, 1);
+            IEnumerable<Task> extractTasks = Enumerable.Range(0, entryCount).Select(index => FilterAndExtractFileAsync(task, fileLocal, index,
+                createDirectorySemaphore, counterSemaphore, extractCounterBox, entryCount, token));
             await Task.WhenAll(extractTasks).ConfigureAwait(continueOnCapturedContext: false);
+            foreach (StreamedZipFile iteratedFile in fileLocal.Values)
+                iteratedFile.Dispose();
             return !token.IsCancellationRequested;
         }
 
-        private async Task FilterAndExtractFileAsync(InstallTask task, ZipEntry entry,
-            SemaphoreSlim extractingSemaphore, SemaphoreSlim countingSemaphore,
-            StrongBox<int> extractCounterBox, int entryCount, CancellationToken token)
+        private async Task FilterAndExtractFileAsync(InstallTask task, ThreadLocal<StreamedZipFile> fileLocal, int index,
+            SemaphoreSlim createDirectorySemaphore, SemaphoreSlim countingSemaphore, StrongBox<int> extractCounterBox, int entryCount, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            StreamedZipFile file = fileLocal.Value!;
+            ZipEntry entry = file[index];
             string filename = entry.FileName;
             string extractFilename = Path.GetFullPath(Path.Combine(ServerDirectory, filename));
             if (CheckExtractFilename(filename, extractFilename))
             {
                 token.ThrowIfCancellationRequested();
 
-                if (extractFilename.EndsWithAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) // Is Directory
+                if (entry.IsDirectory) // Is Directory
                 {
                     if (!Directory.Exists(extractFilename))
-                        Directory.CreateDirectory(extractFilename);
+                    {
+                        await createDirectorySemaphore.WaitAsync(token).ConfigureAwait(false);
+                        try
+                        {
+                            CreateDirectoryIfNotExists(extractFilename);
+                        }
+                        finally
+                        {
+                            createDirectorySemaphore.Release();
+                        }
+                    }
                 }
                 else // Is File
                 {
                     string? directoryPath = Path.GetDirectoryName(extractFilename);
                     if (directoryPath is not null && !Directory.Exists(directoryPath))
-                        Directory.CreateDirectory(directoryPath);
-                    token.ThrowIfCancellationRequested();
-                    await extractingSemaphore.WaitAsync(token);
+                    {
+                        await createDirectorySemaphore.WaitAsync(token).ConfigureAwait(false);
+                        try
+                        {
+                            CreateDirectoryIfNotExists(directoryPath);
+                        }
+                        finally
+                        {
+                            createDirectorySemaphore.Release();
+                        }
+                        token.ThrowIfCancellationRequested();
+                    }
+
+                    await file.WaitForEnterExtractLockAsync(token).ConfigureAwait(false);
                     try
                     {
                         token.ThrowIfCancellationRequested();
@@ -153,13 +185,13 @@ namespace WitherTorch.Core.Servers
                     }
                     finally
                     {
-                        extractingSemaphore.Release();
+                        file.LeaveExtractLock();
                     }
                 }
             }
 
             token.ThrowIfCancellationRequested();
-            await countingSemaphore.WaitAsync(token);
+            await countingSemaphore.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 token.ThrowIfCancellationRequested();
@@ -184,11 +216,17 @@ namespace WitherTorch.Core.Servers
                 _ => true,
             };
 
+        private static void CreateDirectoryIfNotExists(string directory)
+        {
+            if (!Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+        }
+
         private static async Task ExtractFileAsync(ZipEntry entry, string targetFilename, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
 
-            using (Stream destinationStream = new FileStream(targetFilename, FileMode.Create, FileAccess.Write, FileShare.Read, DefaultFileStreamBufferSize, useAsync: true))
+            using (Stream destinationStream = new FileStream(targetFilename, FileMode.Create, FileAccess.Write, FileShare.Read, Constants.DefaultFileStreamBufferSize, useAsync: true))
             {
                 token.ThrowIfCancellationRequested();
                 using CrcCalculatorStream sourceStream = entry.OpenReader();
@@ -204,12 +242,12 @@ namespace WitherTorch.Core.Servers
             token.ThrowIfCancellationRequested();
 
             ArrayPool<byte> pool = ArrayPool<byte>.Shared;
-            byte[] buffer = pool.Rent(DefaultPooledBufferSize);
+            byte[] buffer = pool.Rent(Constants.DefaultPooledBufferSize);
             try
             {
                 while (true)
                 {
-                    int bytesWritten = await source.ReadAsync(buffer, 0, DefaultPooledBufferSize, token);
+                    int bytesWritten = await source.ReadAsync(buffer, 0, Constants.DefaultPooledBufferSize, token);
                     if (bytesWritten <= 0)
                         break;
                     token.ThrowIfCancellationRequested();

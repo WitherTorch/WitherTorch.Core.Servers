@@ -1,6 +1,7 @@
 ﻿using System;
 
 using WitherTorch.Core.Runtime;
+using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
 {
@@ -10,6 +11,8 @@ namespace WitherTorch.Core.Servers
     /// </summary>
     public static class WTServer
     {
+        private static readonly Func<ILocalProcess> _defaultProcessFactory = static () => new LocalProcess();
+        private static readonly Func<ITempFileInfo> _defaultTempFileFactory = TempFileInfo.Create;
         private static string _spigotBuildToolsPath = "./SpigotBuildTools";
         private static string _fabricInstallerPath = "./FabricInstaller";
         private static string _quiltInstallerPath = "./QuiltInstaller";
@@ -92,6 +95,21 @@ namespace WitherTorch.Core.Servers
         /// <summary>
         /// 取得或設定建立 <see cref="ILocalProcess"/> 物件的工廠方法
         /// </summary>
-        public static Func<ILocalProcess> LocalProcessFactory { get; set; } = static () => new LocalProcess();
+        public static Func<ILocalProcess> LocalProcessFactory { get; set; } = _defaultProcessFactory;
+
+        /// <summary>
+        /// 取得或設定建立 <see cref="ITempFileInfo"/> 物件的工廠方法
+        /// </summary>
+        public static Func<ITempFileInfo> TempFileFactory { get; set; } = _defaultTempFileFactory;
+
+        /// <summary>
+        /// 取得建立 <see cref="ILocalProcess"/> 物件的預設工廠方法
+        /// </summary>
+        public static Func<ILocalProcess> DefaultLocalProcessFactory => _defaultProcessFactory;
+
+        /// <summary>
+        /// 取得建立 <see cref="ITempFileInfo"/> 物件的預設工廠方法
+        /// </summary>
+        public static Func<ITempFileInfo> DefaultTempFileFactory => _defaultTempFileFactory;
     }
 }

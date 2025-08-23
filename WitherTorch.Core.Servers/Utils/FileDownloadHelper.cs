@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+using WitherTorch.Core.Runtime;
 using WitherTorch.Core.Utils;
 
 using YamlDotNet.Core.Tokens;
@@ -96,6 +97,82 @@ namespace WitherTorch.Core.Servers.Utils
             return !cancellationToken.IsCancellationRequested;
         }
 
+        /// <summary>
+        /// 下載位於 <paramref name="sourceAddress"/> 的檔案，並將其儲存至 <paramref name="targetTempFile"/> 所對應的暫存檔案之中
+        /// </summary>
+        /// <param name="task">要用於追蹤進度的 <see cref="InstallTask"/> 物件</param>
+        /// <param name="sourceAddress">檔案的來源網址</param>
+        /// <param name="targetTempFile">目標的暫存檔案物件</param>
+        /// <param name="cancellationToken">用於控制非同步操作是否取消的 <see cref="CancellationToken"/> 結構</param>
+        /// <param name="webClient">用於下載檔案的 <see cref="WebClient2"/> 物件，如果此項為 <see langword="null"/> 的話則會自動於內部建立專用的物件</param>
+        /// <param name="initPercentage">用於呼叫 <see cref="InstallTask.ChangePercentage(double)"/> 的初始進度數值</param>
+        /// <param name="percentageMultiplier">用於呼叫 <see cref="InstallTask.ChangePercentage(double)"/> 的進度增加倍率</param>
+        /// <param name="hash">用於校驗檔案完整性的雜湊 <see langword="byte[]"/> 陣列</param>
+        /// <param name="hashMethod">用於校驗檔案完整性的雜湊方法</param>
+        /// <returns>一個工作。當工作完成時，其結果將指示檔案是否下載成功</returns>
+        /// <exception cref="ArgumentOutOfRangeException"/>
+        public static async ValueTask<bool> DownloadFileAsync(InstallTask task, string sourceAddress, ITempFileInfo targetTempFile,
+            CancellationToken cancellationToken, WebClient2? webClient = null,
+            double initPercentage = 0.0, double percentageMultiplier = 1.0,
+            byte[]? hash = null, HashHelper.HashMethod hashMethod = HashHelper.HashMethod.None)
+        {
+            if (hashMethod < HashHelper.HashMethod.None || hashMethod > HashHelper.HashMethod.SHA256)
+                throw new ArgumentOutOfRangeException(nameof(hashMethod));
+            if (!Uri.TryCreate(sourceAddress, UriKind.Absolute, out Uri? sourceUri) || cancellationToken.IsCancellationRequested)
+                return false;
+            DownloadFileClosure closure = new DownloadFileClosure(initPercentage, percentageMultiplier);
+            bool needDisposeWebClient;
+            if (webClient is null)
+            {
+                webClient = new WebClient2();
+                needDisposeWebClient = true;
+            }
+            else
+            {
+                needDisposeWebClient = false;
+            }
+            try
+            {
+                if (!await DownloadFileCoreAsync(task, webClient, sourceUri, targetTempFile, closure, cancellationToken) || cancellationToken.IsCancellationRequested)
+                    return false;
+                if (hash is not null && hashMethod != HashHelper.HashMethod.None)
+                {
+                    do
+                    {
+                        byte[] actualHash;
+                        using (Stream stream = targetTempFile.Open(FileAccess.Read, Constants.DefaultFileStreamBufferSize, useAsync: false))
+                            actualHash = HashHelper.ComputeHash(stream, hashMethod);
+                        if (HashHelper.ByteArrayEquals(hash, actualHash))
+                            break;
+                        bool ignoreHashMismatch;
+                        switch (task.OnValidateFailed(targetTempFile.FullName, actualHash, hash))
+                        {
+                            case ValidateFailedState.Ignore:
+                                ignoreHashMismatch = true;
+                                break;
+                            case ValidateFailedState.Retry:
+                                ignoreHashMismatch = false;
+                                break;
+                            default:
+                                return false;
+                        }
+                        if (cancellationToken.IsCancellationRequested)
+                            return false;
+                        if (ignoreHashMismatch)
+                            break;
+                        if (!await DownloadFileCoreAsync(task, webClient, sourceUri, targetTempFile, closure, cancellationToken) || cancellationToken.IsCancellationRequested)
+                            return false;
+                    } while (true);
+                }
+            }
+            finally
+            {
+                if (needDisposeWebClient)
+                    webClient.Dispose();
+            }
+            return !cancellationToken.IsCancellationRequested;
+        }
+
         private static async ValueTask<bool> DownloadFileCoreAsync(InstallTask task, WebClient2 webClient, 
             Uri sourceUri, string targetFilename, DownloadFileClosure closure, CancellationToken cancellationToken)
         {
@@ -107,6 +184,29 @@ namespace WitherTorch.Core.Servers.Utils
             try
             {
                 webClient.DownloadFileAsync(sourceUri, targetFilename, watcher);
+                if (!await watcher.WaitUtilFinishedAsync())
+                    return false;
+                status.Percentage = 100.0;
+                task.ChangePercentage(closure.GetAdjustedPercentage(100.0));
+                return true;
+            }
+            finally
+            {
+                closure.UnsubscribeEvents(webClient);
+            }
+        }
+
+        private static async ValueTask<bool> DownloadFileCoreAsync(InstallTask task, WebClient2 webClient, 
+            Uri sourceUri, ITempFileInfo targetTempFile, DownloadFileClosure closure, CancellationToken cancellationToken)
+        {
+            DownloadStatus status = new DownloadStatus(sourceUri.AbsoluteUri);
+            task.ChangePercentage(closure.InitialPercentage);
+            task.ChangeStatus(status);
+            using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, webClient, cancellationToken);
+            closure.SubscribeEvents(webClient);
+            try
+            {
+                webClient.DownloadFileAsync(sourceUri, targetTempFile, watcher);
                 if (!await watcher.WaitUtilFinishedAsync())
                     return false;
                 status.Percentage = 100.0;
