@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -59,7 +58,7 @@ namespace WitherTorch.Core.Servers
         private async ValueTask<bool> RunInstallServerTaskAsync(InstallTask task, CancellationToken token)
         {
             string version = task.Version;
-            if (!(await _software.GetSoftwareVersionDictionaryAsync()).TryGetValue(version, out string? downloadUrl) || 
+            if (!(await _software.GetSoftwareVersionDictionaryAsync()).TryGetValue(version, out string? downloadUrl) ||
                 !Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? downloadAddress))
                 return false;
             using (ITempFileInfo tempFileInfo = WTServer.TempFileFactory.Invoke())
@@ -118,26 +117,17 @@ namespace WitherTorch.Core.Servers
             DecompressionStatus status = new DecompressionStatus();
             task.ChangeStatus(status);
             task.ChangePercentage(DecompressPercentageBase);
-            using ThreadLocal<StreamedZipFile> fileLocal = new ThreadLocal<StreamedZipFile>(
-                () => new StreamedZipFile(tempFile, Constants.DefaultFileStreamBufferSize),
-                trackAllValues: true);
-            int entryCount = fileLocal.Value!.Count;
-            StrongBox<int> extractCounterBox = new StrongBox<int>();
-            using SemaphoreSlim counterSemaphore = new SemaphoreSlim(1, 1);
-            using SemaphoreSlim createDirectorySemaphore = new SemaphoreSlim(1, 1);
-            IEnumerable<Task> extractTasks = Enumerable.Range(0, entryCount).Select(index => FilterAndExtractFileAsync(task, fileLocal, index,
-                createDirectorySemaphore, counterSemaphore, extractCounterBox, entryCount, token));
-            await Task.WhenAll(extractTasks).ConfigureAwait(continueOnCapturedContext: false);
-            foreach (StreamedZipFile iteratedFile in fileLocal.Values)
-                iteratedFile.Dispose();
+            using StreamedZipFile file = new StreamedZipFile(tempFile, Constants.DefaultFileStreamBufferSize);
+            for (int i = 0, count = file.Count; i < count; i++)
+            {
+                await FilterAndExtractFileAsync(task, file, i, count, token).ConfigureAwait(false);
+            }
             return !token.IsCancellationRequested;
         }
 
-        private async Task FilterAndExtractFileAsync(InstallTask task, ThreadLocal<StreamedZipFile> fileLocal, int index,
-            SemaphoreSlim createDirectorySemaphore, SemaphoreSlim countingSemaphore, StrongBox<int> extractCounterBox, int entryCount, CancellationToken token)
+        private async Task FilterAndExtractFileAsync(InstallTask task, StreamedZipFile file, int index, int entryCount, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            StreamedZipFile file = fileLocal.Value!;
             ZipEntry entry = file[index];
             string filename = entry.FileName;
             string extractFilename = Path.GetFullPath(Path.Combine(ServerDirectory, filename));
@@ -148,32 +138,14 @@ namespace WitherTorch.Core.Servers
                 if (entry.IsDirectory) // Is Directory
                 {
                     if (!Directory.Exists(extractFilename))
-                    {
-                        await createDirectorySemaphore.WaitAsync(token).ConfigureAwait(false);
-                        try
-                        {
-                            CreateDirectoryIfNotExists(extractFilename);
-                        }
-                        finally
-                        {
-                            createDirectorySemaphore.Release();
-                        }
-                    }
+                        CreateDirectoryIfNotExists(extractFilename);
                 }
                 else // Is File
                 {
                     string? directoryPath = Path.GetDirectoryName(extractFilename);
                     if (directoryPath is not null && !Directory.Exists(directoryPath))
                     {
-                        await createDirectorySemaphore.WaitAsync(token).ConfigureAwait(false);
-                        try
-                        {
-                            CreateDirectoryIfNotExists(directoryPath);
-                        }
-                        finally
-                        {
-                            createDirectorySemaphore.Release();
-                        }
+                        CreateDirectoryIfNotExists(directoryPath);
                         token.ThrowIfCancellationRequested();
                     }
 
@@ -191,21 +163,11 @@ namespace WitherTorch.Core.Servers
             }
 
             token.ThrowIfCancellationRequested();
-            await countingSemaphore.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                token.ThrowIfCancellationRequested();
-                if (task.Status is not DecompressionStatus status)
-                    return;
-                int counter = ++extractCounterBox.Value;
-                double percentage = counter * 1.0 / entryCount;
-                status.Percentage = percentage * 100.0;
-                task.ChangePercentage(DecompressPercentageBase + percentage * (100 - DecompressPercentageBase));
-            }
-            finally
-            {
-                countingSemaphore.Release();
-            }
+            if (task.Status is not DecompressionStatus status)
+                return;
+            double percentage = index * 1.0 / entryCount;
+            status.Percentage = percentage * 100.0;
+            task.ChangePercentage(DecompressPercentageBase + percentage * (100 - DecompressPercentageBase));
         }
 
         private static bool CheckExtractFilename(string filename, string destination)
