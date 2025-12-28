@@ -110,9 +110,10 @@ namespace WitherTorch.Core.Servers
                 downloadURL = string.Format(DownloadURL, sourceDomain, forgeVersionRaw);
             else //Use Legacy URL
                 downloadURL = string.Format(LegacyDownloadURL, sourceDomain, forgeVersionRaw);
-            string installerLocation = Path.GetFullPath(Path.Combine(ServerDirectory, $"neoforge-{forgeVersionRaw}-installer.jar"));
-            if (!await FileDownloadHelper.DownloadFileAsync(task, downloadURL, installerLocation, token, percentageMultiplier: 0.5) ||
-                !await RunInstallerAsync(task, installerLocation, token))
+            string filename = $"neoforge-{forgeVersionRaw}-installer.jar";
+            string destination = Path.GetFullPath(Path.Combine(ServerDirectory, filename));
+            if (!await FileDownloadHelper.DownloadFileAsync(task, downloadURL, destination, token, percentageMultiplier: 0.5) ||
+                !await RunInstallerAsync(task, filename, token))
                 return false;
             _minecraftVersion = minecraftVersion;
             _forgeVersion = forgeVersion;
@@ -123,14 +124,14 @@ namespace WitherTorch.Core.Servers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ValueTask<bool> RunInstallerAsync(InstallTask task, string installerPath, CancellationToken token)
-            => ProcessHelper.RunProcessAsync(task, 50.0, BuildInstallerStartInfo(task, installerPath), token);
+        private static ValueTask<bool> RunInstallerAsync(InstallTask task, string installerFilename, CancellationToken token)
+            => ProcessHelper.RunProcessAsync(task, 50.0, BuildInstallerStartInfo(task, installerFilename), token);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerPath)
+        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerFilename)
             => new LocalProcessStartInfo(
                 fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
-                arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerPath),
+                arguments: string.Format("-Xms512M -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerFilename),
                 workingDirectory: task.Owner.ServerDirectory);
 
         /// <inheritdoc/>

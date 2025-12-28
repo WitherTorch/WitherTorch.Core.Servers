@@ -140,13 +140,13 @@ namespace WitherTorch.Core.Servers
                 needInstall = true;
             }
             builder.Clear();
-            string installerLocation = needInstall ? $"forge-{forgeVersionRaw}-installer.jar" : $"forge-{forgeVersionRaw}.jar";
-            installerLocation = Path.GetFullPath(Path.Combine(ServerDirectory, installerLocation));
-            if (!await FileDownloadHelper.DownloadFileAsync(task, downloadURL, installerLocation, token, percentageMultiplier: needInstall ? 0.5 : 1.0))
+            string filename = needInstall ? $"forge-{forgeVersionRaw}-installer.jar" : $"forge-{forgeVersionRaw}.jar";
+            string destination = Path.GetFullPath(Path.Combine(ServerDirectory, filename));
+            if (!await FileDownloadHelper.DownloadFileAsync(task, downloadURL, destination, token, percentageMultiplier: needInstall ? 0.5 : 1.0))
                 return false;
             if (!needInstall)
                 return true;
-            if (!await RunInstallerAsync(task, installerLocation, token))
+            if (!await RunInstallerAsync(task, filename, token))
                 return false;
             _minecraftVersion = minecraftVersion;
             _forgeVersion = forgeVersion;
@@ -157,14 +157,14 @@ namespace WitherTorch.Core.Servers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ValueTask<bool> RunInstallerAsync(InstallTask task, string installerPath, CancellationToken token)
-            => ProcessHelper.RunProcessAsync(task, 50.0, BuildInstallerStartInfo(task, installerPath), token);
+        private static ValueTask<bool> RunInstallerAsync(InstallTask task, string installerFilename, CancellationToken token)
+            => ProcessHelper.RunProcessAsync(task, 50.0, BuildInstallerStartInfo(task, installerFilename), token);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerPath)
+        private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerFilename)
             => new LocalProcessStartInfo(
                 fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
-                arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerPath),
+                arguments: string.Format("-Xms512M -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerFilename),
                 workingDirectory: task.Owner.ServerDirectory);
 
         /// <inheritdoc/>
