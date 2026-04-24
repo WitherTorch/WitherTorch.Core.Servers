@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.ComponentModel;
 using System.IO;
@@ -229,19 +229,13 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        public override RuntimeEnvironment? GetRuntimeEnvironment()
-        {
-            return null;
-        }
-
-        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return Array.Empty<IPropertyFile>();
         }
 
         /// <inheritdoc/>
-        protected override bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo)
+        protected override bool TryPrepareProcessStartInfo(IRuntimeEnvironment environment, out LocalProcessStartInfo startInfo)
         {
             string serverDirectory = ServerDirectory;
             string path = Path.Combine(serverDirectory, "./bedrock_server.exe");
@@ -266,11 +260,6 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
-        {
-        }
-
-        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
         /// <inheritdoc/>
@@ -279,7 +268,7 @@ namespace WitherTorch.Core.Servers
             string? version = serverInfoJson["version"]?.ToString();
             if (string.IsNullOrEmpty(version))
                 return false;
-            _version = ObjectUtils.ThrowIfNull(version);
+            _version = NullSafetyHelper.ThrowIfNull(version);
             return true;
         }
 

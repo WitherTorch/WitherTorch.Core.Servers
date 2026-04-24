@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -14,7 +14,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Fabric 伺服器
     /// </summary>
-    public partial class Fabric : JavaEditionServerBase, IModLoaderServer
+    public partial class Fabric : JavaDedicatedServerBase, IModLoaderServer
     {
         private const string SoftwareId = "fabric";
 

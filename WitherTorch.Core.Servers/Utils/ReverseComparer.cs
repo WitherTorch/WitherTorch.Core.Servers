@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace WitherTorch.Core.Servers.Utils
@@ -16,8 +16,8 @@ namespace WitherTorch.Core.Servers.Utils
 
         public int Compare(T? x, T? y)
         {
-            x = ObjectUtils.ThrowIfNull(x, nameof(x));
-            y = ObjectUtils.ThrowIfNull(y, nameof(y));
+            x = NullSafetyHelper.ThrowIfNull(x, nameof(x));
+            y = NullSafetyHelper.ThrowIfNull(y, nameof(y));
             int result = _comparer.Compare(x, y);
             return -result;
         }

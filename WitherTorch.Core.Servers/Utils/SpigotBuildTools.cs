@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -177,8 +177,8 @@ namespace WitherTorch.Core.Servers.Utils
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, BuildTarget target, string minecraftVersion)
-            => new LocalProcessStartInfo(
-                fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+            => WTServer.InstallerProcessStartInfoFactory.Invoke(
+                task: task,
                 arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" --rev {1} --compile {2} --final-name {3} --output-dir \"{4}\"",
                     _buildToolFilePath, minecraftVersion,
                     GetBuildTargetStringAndFilename(target, minecraftVersion, out string targetFilename), targetFilename, task.Owner.ServerDirectory),

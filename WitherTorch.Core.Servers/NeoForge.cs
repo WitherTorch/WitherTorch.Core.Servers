@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Runtime;
+using WitherTorch.Core.Servers.Runtime;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -15,7 +16,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// NeoForge 伺服器
     /// </summary>
-    public partial class NeoForge : JavaEditionServerBase, IModLoaderServer
+    public partial class NeoForge : JavaDedicatedServerBase, IModLoaderServer
     {
         private const string LegacyDownloadURL = "{0}/net/neoforged/forge/{1}/forge-{1}-installer.jar";
         private const string DownloadURL = "{0}/net/neoforged/neoforge/{1}/neoforge-{1}-installer.jar";
@@ -129,9 +130,9 @@ namespace WitherTorch.Core.Servers
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerFilename)
-            => new LocalProcessStartInfo(
-                fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
-                arguments: string.Format("-Xms512M -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerFilename),
+            => WTServer.InstallerProcessStartInfoFactory.Invoke(
+                task: task, 
+                arguments: $"-Xms512M -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{installerFilename}\" nogui --installServer",
                 workingDirectory: task.Owner.ServerDirectory);
 
         /// <inheritdoc/>

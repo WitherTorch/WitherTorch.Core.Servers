@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -17,7 +17,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Paper 伺服器
     /// </summary>
-    public sealed partial class Paper : JavaEditionServerBase
+    public sealed partial class Paper : JavaDedicatedServerBase
     {
         private const string BuildVersionManifestListURL = "https://fill.papermc.io/v3/projects/paper/versions/{0}";
         private const string BuildVersionManifestListURL2 = "https://fill.papermc.io/v3/projects/paper/versions/{0}/builds/{1}";

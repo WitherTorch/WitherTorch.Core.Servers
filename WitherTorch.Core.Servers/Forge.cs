@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 
 using WitherTorch.Core.Property;
 using WitherTorch.Core.Runtime;
+using WitherTorch.Core.Servers.Runtime;
 using WitherTorch.Core.Servers.Utils;
 
 namespace WitherTorch.Core.Servers
@@ -16,7 +17,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Forge 伺服器
     /// </summary>
-    public partial class Forge : JavaEditionServerBase, IModLoaderServer
+    public partial class Forge : JavaDedicatedServerBase, IModLoaderServer
     {
         private const string DownloadURLPrefix = "{0}/net/minecraftforge/forge/";
         private const string SoftwareId = "forge";
@@ -162,8 +163,8 @@ namespace WitherTorch.Core.Servers
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string installerFilename)
-            => new LocalProcessStartInfo(
-                fileName: RuntimeEnvironment.JavaDefault.JavaPath ?? "java",
+            => WTServer.InstallerProcessStartInfoFactory.Invoke(
+                task: task,
                 arguments: string.Format("-Xms512M -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" nogui --installServer", installerFilename),
                 workingDirectory: task.Owner.ServerDirectory);
 

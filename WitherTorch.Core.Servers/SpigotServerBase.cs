@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -14,7 +14,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// SpigotMC 所提供之伺服器軟體 (<see cref="CraftBukkit"/>, <see cref="Spigot"/>) 的共同基礎類別
     /// </summary>
-    public abstract partial class SpigotServerBase : JavaEditionServerBase
+    public abstract partial class SpigotServerBase : JavaDedicatedServerBase
     {
         /// <summary>
         /// 設定檔案的陣列，此物件會在初次存取後才呼叫 <see cref="GetServerPropertyFilesCore"/> 進行生成

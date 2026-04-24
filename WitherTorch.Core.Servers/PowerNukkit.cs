@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -13,14 +13,13 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// PowerNukkit 伺服器
     /// </summary>
-    public sealed partial class PowerNukkit : LocalServerBase
+    public sealed partial class PowerNukkit : JavaServerBase
     {
         private const string DownloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
         private const string SoftwareId = "powerNukkit";
 
         private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
         private string _version = string.Empty;
-        private JavaRuntimeEnvironment? _environment;
 
         /// <summary>
         /// 取得伺服器的 nukkit.yml 設定檔案
@@ -80,12 +79,6 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        public override RuntimeEnvironment? GetRuntimeEnvironment()
-        {
-            return _environment;
-        }
-
-        /// <inheritdoc/>
         public override IPropertyFile[] GetServerPropertyFiles()
         {
             return propertyFilesLazy.Value;
@@ -101,30 +94,6 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        protected override bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo)
-            => TryPrepareProcessStartInfoCore(environment as JavaRuntimeEnvironment ?? RuntimeEnvironment.JavaDefault, out startInfo);
-
-        private bool TryPrepareProcessStartInfoCore(JavaRuntimeEnvironment environment, out LocalProcessStartInfo startInfo)
-        {
-            string serverDirectory = ServerDirectory;
-            string jarPath = Path.Combine(serverDirectory, "./powernukkit-" + GetReadableVersion() + ".jar");
-            if (!File.Exists(jarPath))
-            {
-                startInfo = default;
-                return false;
-            }
-            startInfo = new LocalProcessStartInfo(
-                fileName: environment.JavaPath ?? "java",
-                arguments: string.Format(
-                    "-Djline.terminal=jline.UnsupportedTerminal -Dfile.encoding=UTF8 -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 {0} -jar \"{1}\" {2}",
-                    environment.JavaPreArguments ?? string.Empty,
-                    jarPath,
-                    environment.JavaPostArguments ?? string.Empty),
-                workingDirectory: serverDirectory);
-            return true;
-        }
-
-        /// <inheritdoc/>
         protected override void StopServerCore(ILocalProcess process, bool force)
         {
             if (force)
@@ -136,56 +105,31 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        public override void SetRuntimeEnvironment(RuntimeEnvironment? environment)
-        {
-            if (environment is JavaRuntimeEnvironment runtimeEnvironment)
-            {
-                _environment = runtimeEnvironment;
-            }
-            else if (environment is null)
-            {
-                _environment = null;
-            }
-        }
-
-        /// <inheritdoc/>
         protected override bool CreateServerCore() => true;
 
         /// <inheritdoc/>
         protected override bool LoadServerCore(JsonPropertyFile serverInfoJson)
         {
+            if (!base.LoadServerCore(serverInfoJson))
+                return false;
             string? version = serverInfoJson["version"]?.GetValue<string>();
             if (version is null || version.Length <= 0)
                 return false;
             _version = version;
-            string? jvmPath = serverInfoJson["java.path"]?.GetValue<string>() ?? null;
-            string? jvmPreArgs = serverInfoJson["java.preArgs"]?.GetValue<string>() ?? null;
-            string? jvmPostArgs = serverInfoJson["java.postArgs"]?.GetValue<string>() ?? null;
-            if (jvmPath is not null || jvmPreArgs is not null || jvmPostArgs is not null)
-            {
-                _environment = new JavaRuntimeEnvironment(jvmPath, jvmPreArgs, jvmPostArgs);
-            }
             return true;
         }
 
         /// <inheritdoc/>
         protected override bool SaveServerCore(JsonPropertyFile serverInfoJson)
         {
+            if (!base.SaveServerCore(serverInfoJson))
+                return false;
             serverInfoJson["version"] = _version;
-            JavaRuntimeEnvironment? environment = _environment;
-            if (environment is null)
-            {
-                serverInfoJson["java.path"] = null;
-                serverInfoJson["java.preArgs"] = null;
-                serverInfoJson["java.postArgs"] = null;
-            }
-            else
-            {
-                serverInfoJson["java.path"] = environment.JavaPath;
-                serverInfoJson["java.preArgs"] = environment.JavaPreArguments;
-                serverInfoJson["java.postArgs"] = environment.JavaPostArguments;
-            }
             return true;
         }
+
+        /// <inheritdoc/>
+        protected override string GetServerJarPath()
+            => Path.Combine(ServerDirectory, "./powernukkit-" + GetReadableVersion() + ".jar");
     }
 }

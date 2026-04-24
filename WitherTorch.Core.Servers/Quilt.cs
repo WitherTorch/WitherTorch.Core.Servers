@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -14,7 +14,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Quilt 伺服器
     /// </summary>
-    public sealed partial class Quilt : JavaEditionServerBase, IModLoaderServer
+    public sealed partial class Quilt : JavaDedicatedServerBase, IModLoaderServer
     {
         private const string SoftwareId = "quilt";
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -15,7 +15,7 @@ namespace WitherTorch.Core.Servers
     /// <summary>
     /// Java 原版伺服器
     /// </summary>
-    public partial class JavaDedicated : JavaEditionServerBase
+    public partial class JavaDedicated : JavaDedicatedServerBase
     {
         private const string SoftwareId = "javaDedicated";
 

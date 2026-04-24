@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using WitherTorch.Core.Runtime;
 
@@ -33,7 +33,7 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <inheritdoc/>
-        public override bool RunServer(RuntimeEnvironment? environment)
+        public override bool RunServer(IRuntimeEnvironment environment)
         {
             if (_isStarted)
                 return true;
@@ -55,12 +55,12 @@ namespace WitherTorch.Core.Servers
         }
 
         /// <summary>
-        /// 嘗試傳回 <see cref="RunServer(RuntimeEnvironment?)"/> 所使用的處理序啟動資訊
+        /// 嘗試傳回 <see cref="RunServer(IRuntimeEnvironment)"/> 所使用的處理序啟動資訊
         /// </summary>
         /// <param name="environment">執行時的環境</param>
         /// <param name="startInfo">本機處理序的啟動資訊</param>
         /// <returns>是否成功傳回啟動資訊</returns>
-        protected abstract bool TryPrepareProcessStartInfo(RuntimeEnvironment? environment, out LocalProcessStartInfo startInfo);
+        protected abstract bool TryPrepareProcessStartInfo(IRuntimeEnvironment environment, out LocalProcessStartInfo startInfo);
 
         /// <summary>
         /// 子類別需覆寫為關閉伺服器的程式碼
