@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<GlobalUsings>false</GlobalUsings>
@@ -9,16 +9,16 @@
 		<Deterministic>True</Deterministic>
 		<Authors>WitherTorch 製作組</Authors>
 		<Product>WitherTorch</Product>
-		<Description>WitherTorch 的預設伺服器實現集</Description>
-		<Copyright>Copyright © WitherTorch 製作組 2024</Copyright>
+		<Description>WitherTorch 的核心程式庫</Description>
+		<Copyright>Copyright © WitherTorch 製作組 2026</Copyright>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
-		<PackageProjectUrl>https://github.com/WitherTorch/WitherTorch.CoreServers</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/WitherTorch/WitherTorch.Core.Servers</RepositoryUrl>
+		<PackageProjectUrl>https://github.com/WitherTorch/WitherTorch.Core</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/WitherTorch/WitherTorch.Core</RepositoryUrl>
 		<!-- 
 		<Version>1.8.4</Version>
 		-->
-		<Version>1.8.4-CI-11</Version>
+		<Version>1.8.4-CI-21</Version>
 		<PackageIcon>withertorch_core_128.png</PackageIcon>
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>minecraft;minecraft-server</PackageTags>
@@ -38,22 +38,29 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="PolySharp" Version="1.15.0">
-		  <PrivateAssets>all</PrivateAssets>
-		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-		</PackageReference>
-		<PackageReference Include="ProDotNetZip.unofficial.new1271" Version="1.20.0" />
+		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
 		<PackageReference Include="System.Text.Json" Version="10.0.2" />
 		<PackageReference Include="YamlDotNet" Version="17.1.0" />
 	</ItemGroup>
 
-	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+		<PackageReference Include="System.Buffers" Version="4.6.1" />
+		<PackageReference Include="System.Memory" Version="4.6.3" />
+		<PackageReference Include="PolySharp" Version="1.15.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
 	</ItemGroup>
 
-	<ItemGroup>
-		<ProjectReference Include="$(SolutionDir)\WitherTorch.Core\WitherTorch.Core\WitherTorch.Core.csproj" />
-	</ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
+		<PackageReference Include="System.Buffers" Version="4.6.1" />
+		<PackageReference Include="System.Memory" Version="4.6.3" />
+		<PackageReference Include="PolySharp" Version="1.15.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+</ItemGroup>
 
 	<ItemGroup>
 		<None Include="..\LICENSE">
