@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -189,7 +189,18 @@ namespace WitherTorch.Core.Servers
                         continue;
                     if (mcVersion.EndsWith(".0"))
                         mcVersion = mcVersion.Substring(0, mcVersion.Length - 2);
-                    mcVersion = "1." + mcVersion;
+                    int firstDot = mcVersion.IndexOf(".");
+                    if (firstDot <= 0)
+                        goto Tail;
+#if NETSTANDARD2_0
+                    string majorVersionString = mcVersion.Substring(0, firstDot);
+#else
+                    ReadOnlySpan<char> majorVersionString = mcVersion.AsSpan()[..firstDot];
+#endif
+                    if (int.TryParse(majorVersionString, out int majorVersionNumber) && majorVersionNumber < 26)
+                        mcVersion = "1." + mcVersion;
+
+                Tail:
                     if (!result.TryGetValue(mcVersion, out List<ForgeVersionEntry>? historyVersionList))
                         result.Add(mcVersion, historyVersionList = new List<ForgeVersionEntry>());
                     historyVersionList.Add(new ForgeVersionEntry(version, versionString));

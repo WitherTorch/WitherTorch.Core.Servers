@@ -107,10 +107,10 @@ namespace WitherTorch.Core.Servers
             if (versionInfo is null || token.IsCancellationRequested)
                 return false;
             string downloadURL;
-            if (forgeVersion.StartsWith(minecraftVersion.Substring(2)))
-                downloadURL = string.Format(DownloadURL, sourceDomain, forgeVersionRaw);
-            else //Use Legacy URL
+            if (forgeVersion.StartsWith("1.20.1"))
                 downloadURL = string.Format(LegacyDownloadURL, sourceDomain, forgeVersionRaw);
+            else //Use Legacy URL
+                downloadURL = string.Format(DownloadURL, sourceDomain, forgeVersionRaw);
             string filename = $"neoforge-{forgeVersionRaw}-installer.jar";
             string destination = Path.GetFullPath(Path.Combine(ServerDirectory, filename));
             if (!await FileDownloadHelper.DownloadFileAsync(task, downloadURL, destination, token, percentageMultiplier: 0.5) ||
@@ -202,10 +202,10 @@ namespace WitherTorch.Core.Servers
                 .FirstOrDefault();
             if (path is null)
             {
-                if (fullVersionString.StartsWith(_minecraftVersion.Substring(2)))
-                    path = "@libraries/net/neoforged/neoforge/" + fullVersionString;
-                else
+                if (fullVersionString.StartsWith("1.20.1"))
                     path = "@libraries/net/neoforged/forge/" + fullVersionString;
+                else
+                    path = "@libraries/net/neoforged/neoforge/" + fullVersionString;
                 return TryPrepareProcessStartInfoForArgFile(environment, path, out startInfo);
             }
             startInfo = new LocalProcessStartInfo(
