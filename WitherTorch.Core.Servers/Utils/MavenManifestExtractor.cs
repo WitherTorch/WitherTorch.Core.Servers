@@ -1,9 +1,8 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Xml;
-using System.Xml.Linq;
 
 namespace WitherTorch.Core.Servers.Utils
 {

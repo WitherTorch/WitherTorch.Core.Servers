@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -7,8 +7,6 @@ using System.Threading.Tasks;
 
 using WitherTorch.Core.Runtime;
 using WitherTorch.Core.Utils;
-
-using YamlDotNet.Core.Tokens;
 
 namespace WitherTorch.Core.Servers.Utils
 {
