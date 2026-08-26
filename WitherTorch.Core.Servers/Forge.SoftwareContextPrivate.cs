@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -35,7 +35,7 @@ namespace WitherTorch.Core.Servers
 
         private sealed class SoftwareContextPrivate : SoftwareContextBase<Forge>, IForgeLikeSoftwareContext
         {
-            private const string MainSourceDomain = "https://maven.neoforged.net/releases";
+            private const string MainSourceDomain = "https://maven.minecraftforge.net/releases";
             private const string MirrorSourceDomain = "https://maven.creeperhost.net";
             private const string ManifestListURL = "{0}/net/minecraftforge/forge/maven-metadata.xml";
 
