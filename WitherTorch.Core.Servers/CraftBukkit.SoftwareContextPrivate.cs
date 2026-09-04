@@ -1,21 +1,20 @@
-﻿using WitherTorch.Core.Software;
+using WitherTorch.Core.Software;
 
-namespace WitherTorch.Core.Servers
+namespace WitherTorch.Core.Servers;
+
+partial class CraftBukkit
 {
-    partial class CraftBukkit
+    private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+
+    /// <summary>
+    /// 取得與 <see cref="CraftBukkit"/> 相關聯的軟體上下文
+    /// </summary>
+    public static ISoftwareContext Software => _software;
+
+    private sealed class SoftwareContextPrivate : SoftwareContextBase<CraftBukkit>
     {
-        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+        public SoftwareContextPrivate() : base(SoftwareId) { }
 
-        /// <summary>
-        /// 取得與 <see cref="CraftBukkit"/> 相關聯的軟體上下文
-        /// </summary>
-        public static ISoftwareContext Software => _software;
-
-        private sealed class SoftwareContextPrivate : SoftwareContextBase<CraftBukkit>
-        {
-            public SoftwareContextPrivate() : base(SoftwareId) { }
-
-            public override CraftBukkit? CreateServerInstance(string serverDirectory) => new CraftBukkit(serverDirectory);
-        }
+        public override CraftBukkit? CreateServerInstance(string serverDirectory) => new CraftBukkit(serverDirectory);
     }
 }

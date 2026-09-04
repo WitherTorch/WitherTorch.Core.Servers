@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
@@ -7,79 +7,78 @@ using System.Threading.Tasks;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Software;
 
-namespace WitherTorch.Core.Servers
+namespace WitherTorch.Core.Servers;
+
+partial class JavaDedicated
 {
-    partial class JavaDedicated
+    private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+
+    /// <summary>
+    /// 取得與 <see cref="JavaDedicated"/> 相關聯的軟體上下文
+    /// </summary>
+    public static ISoftwareContext Software => _software;
+
+    private sealed class SoftwareContextPrivate : SoftwareContextBase<JavaDedicated>
     {
-        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+        private static readonly Lazy<Task<IReadOnlyList<string>>> _versionListLazy = new(
+            LoadVersionListAsync, LazyThreadSafetyMode.PublicationOnly);
 
-        /// <summary>
-        /// 取得與 <see cref="JavaDedicated"/> 相關聯的軟體上下文
-        /// </summary>
-        public static ISoftwareContext Software => _software;
+        public SoftwareContextPrivate() : base(SoftwareId) { }
 
-        private sealed class SoftwareContextPrivate : SoftwareContextBase<JavaDedicated>
+        public override JavaDedicated? CreateServerInstance(string serverDirectory) => new JavaDedicated(serverDirectory);
+
+        public override async Task<bool> TryInitializeAsync(CancellationToken token)
         {
-            private static readonly Lazy<Task<IReadOnlyList<string>>> _versionListLazy = new(
-                LoadVersionListAsync, LazyThreadSafetyMode.PublicationOnly);
+            if (!await base.TryInitializeAsync(token))
+                return false;
+            await _versionListLazy.Value;
+            return true;
+        }
 
-            public SoftwareContextPrivate() : base(SoftwareId) { }
+        public override Task<IReadOnlyList<string>> GetSoftwareVersionsAsync() => _versionListLazy.Value;
 
-            public override JavaDedicated? CreateServerInstance(string serverDirectory) => new JavaDedicated(serverDirectory);
-
-            public override async Task<bool> TryInitializeAsync(CancellationToken token)
+        private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
+        {
+            IReadOnlyDictionary<string, MojangAPI.VersionInfo> dict = await MojangAPI.GetVersionDictionaryAsync();
+            int count = dict.Count;
+            if (count <= 0)
+                return Array.Empty<string>();
+            ArrayPool<string> pool = ArrayPool<string>.Shared;
+            string[] buffer = pool.Rent(count);
+            int i = 0;
+            foreach (MojangAPI.VersionInfo info in dict.Values)
             {
-                if (!await base.TryInitializeAsync(token))
-                    return false;
-                await _versionListLazy.Value;
+                if (!IsVanillaHasServer(info))
+                    continue;
+                string? id = info.Id;
+                if (id is null)
+                    continue;
+                buffer[i++] = id;
+            }
+            if (i <= 0)
+            {
+                pool.Return(buffer, clearArray: true);
+                return Array.Empty<string>();
+            }
+            string[] result = new string[i];
+            Array.Copy(buffer, result, i);
+            pool.Return(buffer, clearArray: true);
+
+            Array.Sort(result, MojangAPI.VersionComparer.Instance.Reverse());
+            return result;
+        }
+
+        private static bool IsVanillaHasServer(MojangAPI.VersionInfo versionInfo)
+        {
+            DateTime time = versionInfo.ReleaseTime;
+            int year = time.Year;
+            int month = time.Month;
+            int day = time.Day;
+            if (year > 2012 || (year == 2012 && (month > 3 || (month == 3 && day >= 29)))) //1.2.5 開始有 server 版本 (1.2.5 發布日期: 2012/3/29)
+            {
                 return true;
             }
-
-            public override Task<IReadOnlyList<string>> GetSoftwareVersionsAsync() => _versionListLazy.Value;
-
-            private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
-            {
-                IReadOnlyDictionary<string, MojangAPI.VersionInfo> dict = await MojangAPI.GetVersionDictionaryAsync();
-                int count = dict.Count;
-                if (count <= 0)
-                    return Array.Empty<string>();
-                ArrayPool<string> pool = ArrayPool<string>.Shared;
-                string[] buffer = pool.Rent(count);
-                int i = 0;
-                foreach (MojangAPI.VersionInfo info in dict.Values)
-                {
-                    if (!IsVanillaHasServer(info))
-                        continue;
-                    string? id = info.Id;
-                    if (id is null)
-                        continue;
-                    buffer[i++] = id;
-                }
-                if (i <= 0)
-                {
-                    pool.Return(buffer, clearArray: true);
-                    return Array.Empty<string>();
-                }
-                string[] result = new string[i];
-                Array.Copy(buffer, result, i);
-                pool.Return(buffer, clearArray: true);
-
-                Array.Sort(result, MojangAPI.VersionComparer.Instance.Reverse());
-                return result;
-            }
-
-            private static bool IsVanillaHasServer(MojangAPI.VersionInfo versionInfo)
-            {
-                DateTime time = versionInfo.ReleaseTime;
-                int year = time.Year;
-                int month = time.Month;
-                int day = time.Day;
-                if (year > 2012 || (year == 2012 && (month > 3 || (month == 3 && day >= 29)))) //1.2.5 開始有 server 版本 (1.2.5 發布日期: 2012/3/29)
-                {
-                    return true;
-                }
-                return false;
-            }
+            return false;
         }
     }
 }

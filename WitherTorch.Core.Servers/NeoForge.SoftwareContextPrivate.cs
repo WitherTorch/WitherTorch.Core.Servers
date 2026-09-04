@@ -9,229 +9,228 @@ using WitherTorch.Core.Servers.Software;
 using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Utils;
 
-namespace WitherTorch.Core.Servers
+namespace WitherTorch.Core.Servers;
+
+partial class NeoForge
 {
-    partial class NeoForge
+    private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+
+    /// <summary>
+    /// 取得與 <see cref="NeoForge"/> 相關聯的軟體上下文
+    /// </summary>
+    public static IForgeLikeSoftwareContext Software => _software;
+
+    private sealed class ForgeVersionEntry
     {
-        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+        public readonly string version;
 
-        /// <summary>
-        /// 取得與 <see cref="NeoForge"/> 相關聯的軟體上下文
-        /// </summary>
-        public static IForgeLikeSoftwareContext Software => _software;
+        public readonly string versionRaw;
 
-        private sealed class ForgeVersionEntry
+        public ForgeVersionEntry(string version, string versionRaw)
         {
-            public readonly string version;
+            this.version = version;
+            this.versionRaw = versionRaw;
+        }
+    }
 
-            public readonly string versionRaw;
+    private class SoftwareContextPrivate : SoftwareContextBase<NeoForge>, IForgeLikeSoftwareContext
+    {
+        private const string MainSourceDomain = "https://maven.neoforged.net/releases";
+        private const string MirrorSourceDomain = "https://maven.creeperhost.net";
+        private const string LegacyManifestListURL = "{0}/net/neoforged/forge/maven-metadata.xml";
+        private const string ManifestListURL = "{0}/net/neoforged/neoforge/maven-metadata.xml";
 
-            public ForgeVersionEntry(string version, string versionRaw)
-            {
-                this.version = version;
-                this.versionRaw = versionRaw;
-            }
+        private static readonly string[] SourceDomains = [MainSourceDomain, MirrorSourceDomain];
+
+        private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>> _versionDictGroupLazy;
+        private int _sourceDomainIndex = 0;
+
+        public string AvailableSourceDomain => _sourceDomainIndex < SourceDomains.Length ? SourceDomains[_sourceDomainIndex] : string.Empty;
+
+        public SoftwareContextPrivate() : base(SoftwareId)
+        {
+            _versionDictGroupLazy = new Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>>(
+                LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
-        private class SoftwareContextPrivate : SoftwareContextBase<NeoForge>, IForgeLikeSoftwareContext
+        public override async Task<IReadOnlyList<string>> GetSoftwareVersionsAsync()
+            => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Keys;
+
+        public async Task<IReadOnlyList<string>> GetForgeVersionsFromMinecraftVersionAsync(string minecraftVersion)
+            => (await GetForgeVersionEntriesFromMinecraftVersionAsync(minecraftVersion)).Select(val => val.version).ToArray();
+
+        public async Task<ForgeVersionEntry[]> GetForgeVersionEntriesFromMinecraftVersionAsync(string minecraftVersion)
+            => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Dictionary.TryGetValue(
+                minecraftVersion, out ForgeVersionEntry[]? result) ? result : Array.Empty<ForgeVersionEntry>();
+
+        public override NeoForge? CreateServerInstance(string serverDirectory) => new NeoForge(serverDirectory);
+
+        public override async Task<bool> TryInitializeAsync(CancellationToken token)
         {
-            private const string MainSourceDomain = "https://maven.neoforged.net/releases";
-            private const string MirrorSourceDomain = "https://maven.creeperhost.net";
-            private const string LegacyManifestListURL = "{0}/net/neoforged/forge/maven-metadata.xml";
-            private const string ManifestListURL = "{0}/net/neoforged/neoforge/maven-metadata.xml";
+            if (!await base.TryInitializeAsync(token))
+                return false;
+            await _versionDictGroupLazy.Value;
+            return true;
+        }
 
-            private static readonly string[] SourceDomains = [MainSourceDomain, MirrorSourceDomain];
+        private async Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>> LoadVersionDictionaryAsync()
+        {
+            Dictionary<string, List<ForgeVersionEntry>>? legacyDict, dict;
+            StrongBox<int> preferredDomainIndexBox = new StrongBox<int>(0);
 
-            private readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>> _versionDictGroupLazy;
-            private int _sourceDomainIndex = 0;
-
-            public string AvailableSourceDomain => _sourceDomainIndex < SourceDomains.Length ? SourceDomains[_sourceDomainIndex] : string.Empty;
-
-            public SoftwareContextPrivate() : base(SoftwareId)
+            try
             {
-                _versionDictGroupLazy = new Lazy<Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>>>(
-                    LoadVersionDictionaryAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+                legacyDict = await LoadLegacyVersionDataAsync(preferredDomainIndexBox);
+            }
+            catch (Exception)
+            {
+                legacyDict = null;
             }
 
-            public override async Task<IReadOnlyList<string>> GetSoftwareVersionsAsync()
-                => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Keys;
-
-            public async Task<IReadOnlyList<string>> GetForgeVersionsFromMinecraftVersionAsync(string minecraftVersion)
-                => (await GetForgeVersionEntriesFromMinecraftVersionAsync(minecraftVersion)).Select(val => val.version).ToArray();
-
-            public async Task<ForgeVersionEntry[]> GetForgeVersionEntriesFromMinecraftVersionAsync(string minecraftVersion)
-                => (await _versionDictGroupLazy.Value.ConfigureAwait(false)).Dictionary.TryGetValue(
-                    minecraftVersion, out ForgeVersionEntry[]? result) ? result : Array.Empty<ForgeVersionEntry>();
-
-            public override NeoForge? CreateServerInstance(string serverDirectory) => new NeoForge(serverDirectory);
-
-            public override async Task<bool> TryInitializeAsync(CancellationToken token)
+            int sourceDomainIndex = preferredDomainIndexBox.Value;
+            if (sourceDomainIndex >= SourceDomains.Length)
             {
-                if (!await base.TryInitializeAsync(token))
-                    return false;
-                await _versionDictGroupLazy.Value;
-                return true;
-            }
-
-            private async Task<ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>> LoadVersionDictionaryAsync()
-            {
-                Dictionary<string, List<ForgeVersionEntry>>? legacyDict, dict;
-                StrongBox<int> preferredDomainIndexBox = new StrongBox<int>(0);
-
-                try
-                {
-                    legacyDict = await LoadLegacyVersionDataAsync(preferredDomainIndexBox);
-                }
-                catch (Exception)
-                {
-                    legacyDict = null;
-                }
-
-                int sourceDomainIndex = preferredDomainIndexBox.Value;
-                if (sourceDomainIndex >= SourceDomains.Length)
-                {
-                    _sourceDomainIndex = sourceDomainIndex;
-                    return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
-                }
-
-                try
-                {
-                    dict = await LoadVersionDataAsync(preferredDomainIndexBox);
-                }
-                catch (Exception)
-                {
-                    dict = null;
-                }
-
-                sourceDomainIndex = preferredDomainIndexBox.Value;
                 _sourceDomainIndex = sourceDomainIndex;
-                if (sourceDomainIndex >= SourceDomains.Length)
+                return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
+            }
+
+            try
+            {
+                dict = await LoadVersionDataAsync(preferredDomainIndexBox);
+            }
+            catch (Exception)
+            {
+                dict = null;
+            }
+
+            sourceDomainIndex = preferredDomainIndexBox.Value;
+            _sourceDomainIndex = sourceDomainIndex;
+            if (sourceDomainIndex >= SourceDomains.Length)
+                return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
+
+            IReadOnlyDictionary<string, ForgeVersionEntry[]> transformedDict;
+            if (legacyDict is null || legacyDict.Count <= 0)
+            {
+                if (dict is null || dict.Count <= 0)
                     return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
 
-                IReadOnlyDictionary<string, ForgeVersionEntry[]> transformedDict;
-                if (legacyDict is null || legacyDict.Count <= 0)
+                transformedDict = dict.ToDictionary(
+                    keySelector: pair => pair.Key,
+                    elementSelector: pair => pair.Value.ToArray());
+            }
+            else
+            {
+                if (dict is null || dict.Count <= 0)
                 {
-                    if (dict is null || dict.Count <= 0)
-                        return ReadOnlyDictionaryKeyGroup<string, ForgeVersionEntry[]>.Empty;
-
-                    transformedDict = dict.ToDictionary(
+                    transformedDict = legacyDict.ToDictionary(
                         keySelector: pair => pair.Key,
                         elementSelector: pair => pair.Value.ToArray());
                 }
                 else
                 {
-                    if (dict is null || dict.Count <= 0)
-                    {
-                        transformedDict = legacyDict.ToDictionary(
-                            keySelector: pair => pair.Key,
-                            elementSelector: pair => pair.Value.ToArray());
-                    }
-                    else
-                    {
-                        transformedDict = dict.Union(legacyDict, KeyEqualityComparer<string, List<ForgeVersionEntry>>.Default).ToDictionary(
-                            keySelector: pair => pair.Key,
-                            elementSelector: pair => pair.Value.ToArray());
-                    }
+                    transformedDict = dict.Union(legacyDict, KeyEqualityComparer<string, List<ForgeVersionEntry>>.Default).ToDictionary(
+                        keySelector: pair => pair.Key,
+                        elementSelector: pair => pair.Value.ToArray());
                 }
-
-                return ReadOnlyDictionaryKeyGroup.Create(transformedDict, static keys =>
-                    {
-                        Array.Sort(keys, MojangAPI.VersionComparer.Instance);
-                        Array.Reverse(keys);
-                    });
             }
 
-            private static async Task<Dictionary<string, List<ForgeVersionEntry>>?> LoadLegacyVersionDataAsync(StrongBox<int> preferredDomainIndexBox)
-            {
-                string? manifestString = await DownloadStringFromDomains(SourceDomains, LegacyManifestListURL, preferredDomainIndexBox);
-                if (!MavenManifestExtractor.TryEnumerateVersionsFromXml(manifestString, out string? latestVersion, out IEnumerable<string>? versions))
-                    return null;
-                Dictionary<string, List<ForgeVersionEntry>> result = new Dictionary<string, List<ForgeVersionEntry>>();
-                string? firstVersionString = null;
-                foreach (string versionString in versions)
+            return ReadOnlyDictionaryKeyGroup.Create(transformedDict, static keys =>
                 {
-                    firstVersionString ??= versionString;
-                    if (versionString == "1.20.1-47.1.7") //此版本不存在
-                        continue;
-                    string[] versionSplits = versionString.Split('-');
-                    if (versionSplits.Length < 2)
-                        continue;
-                    string version = VersionStringHelper.ReplaceOnce(versionSplits[0], '_', '-').Replace(".0", string.Empty);
-                    if (!result.TryGetValue(version, out List<ForgeVersionEntry>? historyVersionList))
-                        result.Add(version, historyVersionList = new List<ForgeVersionEntry>());
-                    historyVersionList.Add(new ForgeVersionEntry(versionSplits[1], versionString));
-                }
+                    Array.Sort(keys, MojangAPI.VersionComparer.Instance);
+                    Array.Reverse(keys);
+                });
+        }
 
-                if (!latestVersion.Equals(firstVersionString)) // 如果最新版本不在版本列表最前面的話，就把結果倒置
-                {
-                    foreach (List<ForgeVersionEntry> historyVersionList in result.Values)
-                        historyVersionList.Reverse();
-                }
-                return result;
-            }
-
-            private static async Task<Dictionary<string, List<ForgeVersionEntry>>?> LoadVersionDataAsync(StrongBox<int> preferredDomainIndexBox)
-            {
-                string? manifestString = await DownloadStringFromDomains(SourceDomains, ManifestListURL, preferredDomainIndexBox);
-                if (!MavenManifestExtractor.TryEnumerateVersionsFromXml(manifestString, out string? latestVersion, out IEnumerable<string>? versions))
-                    return null;
-                Dictionary<string, List<ForgeVersionEntry>> result = new Dictionary<string, List<ForgeVersionEntry>>();
-                string? firstVersionString = null;
-                foreach (string versionString in versions)
-                {
-                    firstVersionString ??= versionString;
-                    string[] versionSplits = versionString.Split('-');
-                    if (versionSplits.Length < 1)
-                        continue;
-                    string version = versionSplits[0];
-                    string mcVersion = version.Substring(0, version.LastIndexOf('.'));
-                    if (mcVersion.StartsWith("0."))
-                        continue;
-                    if (mcVersion.EndsWith(".0"))
-                        mcVersion = mcVersion.Substring(0, mcVersion.Length - 2);
-                    int firstDot = mcVersion.IndexOf(".");
-                    if (firstDot <= 0)
-                        goto Tail;
-#if NETSTANDARD2_0
-                    string majorVersionString = mcVersion.Substring(0, firstDot);
-#else
-                    ReadOnlySpan<char> majorVersionString = mcVersion.AsSpan()[..firstDot];
-#endif
-                    if (int.TryParse(majorVersionString, out int majorVersionNumber) && majorVersionNumber < 26)
-                        mcVersion = "1." + mcVersion;
-
-                Tail:
-                    if (!result.TryGetValue(mcVersion, out List<ForgeVersionEntry>? historyVersionList))
-                        result.Add(mcVersion, historyVersionList = new List<ForgeVersionEntry>());
-                    historyVersionList.Add(new ForgeVersionEntry(version, versionString));
-                }
-
-                if (!latestVersion.Equals(firstVersionString)) // 如果最新版本不在版本列表最前面的話，就把結果倒置
-                {
-                    foreach (List<ForgeVersionEntry> historyVersionList in result.Values)
-                        historyVersionList.Reverse();
-                }
-                return result;
-            }
-
-            private static async Task<string?> DownloadStringFromDomains(string[] domains, string urlFormat, StrongBox<int> indexRecorder)
-            {
-                int index = indexRecorder.Value;
-                int length = domains.Length;
-                if (index >= length)
-                    return null;
-                for (; index < length; index++)
-                {
-                    string? result = await CachedDownloadClient.Instance.DownloadStringAsync(string.Format(urlFormat, domains[index]));
-                    if (result is not null)
-                    {
-                        indexRecorder.Value = index;
-                        return result;
-                    }
-                }
-                indexRecorder.Value = length;
+        private static async Task<Dictionary<string, List<ForgeVersionEntry>>?> LoadLegacyVersionDataAsync(StrongBox<int> preferredDomainIndexBox)
+        {
+            string? manifestString = await DownloadStringFromDomains(SourceDomains, LegacyManifestListURL, preferredDomainIndexBox);
+            if (!MavenManifestExtractor.TryEnumerateVersionsFromXml(manifestString, out string? latestVersion, out IEnumerable<string>? versions))
                 return null;
+            Dictionary<string, List<ForgeVersionEntry>> result = new Dictionary<string, List<ForgeVersionEntry>>();
+            string? firstVersionString = null;
+            foreach (string versionString in versions)
+            {
+                firstVersionString ??= versionString;
+                if (versionString == "1.20.1-47.1.7") //此版本不存在
+                    continue;
+                string[] versionSplits = versionString.Split('-');
+                if (versionSplits.Length < 2)
+                    continue;
+                string version = VersionStringHelper.ReplaceOnce(versionSplits[0], '_', '-').Replace(".0", string.Empty);
+                if (!result.TryGetValue(version, out List<ForgeVersionEntry>? historyVersionList))
+                    result.Add(version, historyVersionList = new List<ForgeVersionEntry>());
+                historyVersionList.Add(new ForgeVersionEntry(versionSplits[1], versionString));
             }
+
+            if (!latestVersion.Equals(firstVersionString)) // 如果最新版本不在版本列表最前面的話，就把結果倒置
+            {
+                foreach (List<ForgeVersionEntry> historyVersionList in result.Values)
+                    historyVersionList.Reverse();
+            }
+            return result;
+        }
+
+        private static async Task<Dictionary<string, List<ForgeVersionEntry>>?> LoadVersionDataAsync(StrongBox<int> preferredDomainIndexBox)
+        {
+            string? manifestString = await DownloadStringFromDomains(SourceDomains, ManifestListURL, preferredDomainIndexBox);
+            if (!MavenManifestExtractor.TryEnumerateVersionsFromXml(manifestString, out string? latestVersion, out IEnumerable<string>? versions))
+                return null;
+            Dictionary<string, List<ForgeVersionEntry>> result = new Dictionary<string, List<ForgeVersionEntry>>();
+            string? firstVersionString = null;
+            foreach (string versionString in versions)
+            {
+                firstVersionString ??= versionString;
+                string[] versionSplits = versionString.Split('-');
+                if (versionSplits.Length < 1)
+                    continue;
+                string version = versionSplits[0];
+                string mcVersion = version.Substring(0, version.LastIndexOf('.'));
+                if (mcVersion.StartsWith("0."))
+                    continue;
+                if (mcVersion.EndsWith(".0"))
+                    mcVersion = mcVersion.Substring(0, mcVersion.Length - 2);
+                int firstDot = mcVersion.IndexOf(".");
+                if (firstDot <= 0)
+                    goto Tail;
+#if NETSTANDARD2_0
+                string majorVersionString = mcVersion.Substring(0, firstDot);
+#else
+                ReadOnlySpan<char> majorVersionString = mcVersion.AsSpan()[..firstDot];
+#endif
+                if (int.TryParse(majorVersionString, out int majorVersionNumber) && majorVersionNumber < 26)
+                    mcVersion = "1." + mcVersion;
+
+            Tail:
+                if (!result.TryGetValue(mcVersion, out List<ForgeVersionEntry>? historyVersionList))
+                    result.Add(mcVersion, historyVersionList = new List<ForgeVersionEntry>());
+                historyVersionList.Add(new ForgeVersionEntry(version, versionString));
+            }
+
+            if (!latestVersion.Equals(firstVersionString)) // 如果最新版本不在版本列表最前面的話，就把結果倒置
+            {
+                foreach (List<ForgeVersionEntry> historyVersionList in result.Values)
+                    historyVersionList.Reverse();
+            }
+            return result;
+        }
+
+        private static async Task<string?> DownloadStringFromDomains(string[] domains, string urlFormat, StrongBox<int> indexRecorder)
+        {
+            int index = indexRecorder.Value;
+            int length = domains.Length;
+            if (index >= length)
+                return null;
+            for (; index < length; index++)
+            {
+                string? result = await CachedDownloadClient.Instance.DownloadStringAsync(string.Format(urlFormat, domains[index]));
+                if (result is not null)
+                {
+                    indexRecorder.Value = index;
+                    return result;
+                }
+            }
+            indexRecorder.Value = length;
+            return null;
         }
     }
 }

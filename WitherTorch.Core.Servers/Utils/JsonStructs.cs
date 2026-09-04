@@ -1,14 +1,13 @@
-﻿
+
 using System.Text.Json.Serialization;
 
-namespace WitherTorch.Core.Servers.Utils
-{
-    internal struct VersionStruct
-    {
-        [JsonPropertyName("version")]
-        public string Version { get; set; }
+namespace WitherTorch.Core.Servers.Utils;
 
-        [JsonPropertyName("stable")]
-        public bool Stable { get; set; }
-    }
+internal struct VersionStruct
+{
+    [JsonPropertyName("version")]
+    public string Version { get; set; }
+
+    [JsonPropertyName("stable")]
+    public bool Stable { get; set; }
 }

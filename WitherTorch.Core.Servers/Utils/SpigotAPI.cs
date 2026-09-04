@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -7,132 +7,130 @@ using System.Xml;
 
 using WitherTorch.Core.Utils;
 
-namespace WitherTorch.Core.Servers.Utils
+namespace WitherTorch.Core.Servers.Utils;
+
+/// <summary>
+/// 提供與 SpigotMC 相關的公用 API，此類別是靜態類別
+/// </summary>
+public static class SpigotAPI
 {
+    private const string manifestListURL = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/maven-metadata.xml";
+    private const string manifestListURL2 = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/{0}/maven-metadata.xml";
+
+    private static readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, string>>> _versionDictKeyGroupLazy =
+        new(LoadVersionDictionaryKeyGroupAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+
     /// <summary>
-    /// 提供與 SpigotMC 相關的公用 API，此類別是靜態類別
+    /// 取得 SpigotMC 的版本資料庫
     /// </summary>
-    public static class SpigotAPI
+    public static async Task<IReadOnlyDictionary<string, string>> GetVersionDictionaryAsync()
+        => (await _versionDictKeyGroupLazy.Value.ConfigureAwait(false)).Dictionary;
+
+    /// <summary>
+    /// 取得 SpigotMC 的版本列表
+    /// </summary>
+    public static async Task<IReadOnlyList<string>> GetVersionsAsync()
+        => (await _versionDictKeyGroupLazy.Value.ConfigureAwait(false)).Keys;
+
+    private static async Task<ReadOnlyDictionaryKeyGroup<string, string>> LoadVersionDictionaryKeyGroupAsync()
     {
-        private const string manifestListURL = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/maven-metadata.xml";
-        private const string manifestListURL2 = "https://hub.spigotmc.org/nexus/content/groups/public/org/spigotmc/spigot-api/{0}/maven-metadata.xml";
-
-        private static readonly Lazy<Task<ReadOnlyDictionaryKeyGroup<string, string>>> _versionDictKeyGroupLazy =
-            new(LoadVersionDictionaryKeyGroupAsync, LazyThreadSafetyMode.ExecutionAndPublication);
-
-        /// <summary>
-        /// 取得 SpigotMC 的版本資料庫
-        /// </summary>
-        public static async Task<IReadOnlyDictionary<string, string>> GetVersionDictionaryAsync()
-            => (await _versionDictKeyGroupLazy.Value.ConfigureAwait(false)).Dictionary;
-
-        /// <summary>
-        /// 取得 SpigotMC 的版本列表
-        /// </summary>
-        public static async Task<IReadOnlyList<string>> GetVersionsAsync()
-            => (await _versionDictKeyGroupLazy.Value.ConfigureAwait(false)).Keys;
-
-        private static async Task<ReadOnlyDictionaryKeyGroup<string, string>> LoadVersionDictionaryKeyGroupAsync()
+        Dictionary<string, string>? dict;
+        try
         {
-            Dictionary<string, string>? dict;
-            try
-            {
-                dict = await LoadVersionDictionaryAsync();
-            }
-            catch (Exception)
-            {
-                dict = null;
-            }
-            if (dict is null || dict.Count <= 0)
-                return ReadOnlyDictionaryKeyGroup<string, string>.Empty;
-            return ReadOnlyDictionaryKeyGroup.Create(dict,
-                static (keys) => Array.Sort(keys, MojangAPI.VersionComparer.Instance.Reverse()));
+            dict = await LoadVersionDictionaryAsync();
         }
-
-        private static async ValueTask<Dictionary<string, string>?> LoadVersionDictionaryAsync()
+        catch (Exception)
         {
-            CachedDownloadClient client = CachedDownloadClient.Instance;
-            HttpClient innerClient = client.InnerHttpClient;
-            innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Constants.UserAgent);
-            string? manifestString = await client.DownloadStringAsync(manifestListURL);
-            innerClient.DefaultRequestHeaders.Remove("User-Agent");
-            if (string.IsNullOrEmpty(manifestString))
-                return null;
-            XmlDocument manifestXML = new XmlDocument();
-            manifestXML.LoadXml(manifestString);
-            XmlNodeList? nodeList = manifestXML.SelectNodes("/metadata/versioning/versions/version");
-            if (nodeList is null)
-                return null;
-
-            Dictionary<string, string> result = new Dictionary<string, string>();
-            foreach (XmlNode node in nodeList)
-            {
-                string versionString = node.InnerText;
-                string[] versionSplits = versionString.Split('-');
-                string version = versionSplits[0];
-                for (int i = 1; i < versionSplits.Length; i++)
-                {
-                    if (versionSplits[i][0] == 'R' || versionSplits[i] == "SNAPSHOT")
-                        break;
-                    version += "-" + versionSplits[i];
-                }
-                if (result.ContainsKey(version))
-                    continue;
-                result.Add(version, versionString);
-            }
-
-            return result;
+            dict = null;
         }
-
-        /// <inheritdoc cref="GetBuildNumberAsync(string, CancellationToken)"/>
-        public static ValueTask<int> GetBuildNumberAsync(string version)
-            => GetBuildNumberAsync(version, CancellationToken.None);
-
-        /// <summary>
-        /// 取得與指定的 Minecraft 版本相關聯的 Spigot 組建編號
-        /// </summary>
-        /// <param name="version">要查詢的 Minecraft 版本</param>
-        /// <param name="token">用於控制非同步操作是否取消的 <see cref="CancellationToken"/> 結構</param>
-        /// <returns>與對應的 Minecraft 相關聯的組建標號，如果沒找到的話則會傳回 <see langword="-1"/></returns>
-        public static async ValueTask<int> GetBuildNumberAsync(string version, CancellationToken token)
-        {
-            ReadOnlyDictionaryKeyGroup<string, string> keyGroup = await _versionDictKeyGroupLazy.Value.ConfigureAwait(continueOnCapturedContext: false);
-            if (!keyGroup.Dictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
-                return -1;
-            try
-            {
-                return await GetBuildNumberCoreAsync(string.Format(manifestListURL2, result), token);
-            }
-            catch (Exception)
-            {
-            }
-            return -1;
-        }
-
-        private static async ValueTask<int> GetBuildNumberCoreAsync(string url, CancellationToken token)
-        {
-            string manifestString;
-            using (HttpClient client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
-#if NET8_0_OR_GREATER
-                manifestString = await client.GetStringAsync(url, token);
-#else
-                manifestString = await client.GetStringAsync(url);
-                if (token.IsCancellationRequested)
-                    return -1;
-#endif
-            }
-            if (string.IsNullOrEmpty(manifestString))
-                return -1;
-
-            XmlDocument manifestXML = new XmlDocument();
-            manifestXML.LoadXml(manifestString);
-            string? buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.InnerText;
-            if (!string.IsNullOrEmpty(buildNumber) && int.TryParse(buildNumber, out int result))
-                return result;
-            return -1;
-        }
+        if (dict is null || dict.Count <= 0)
+            return ReadOnlyDictionaryKeyGroup<string, string>.Empty;
+        return ReadOnlyDictionaryKeyGroup.Create(dict,
+            static (keys) => Array.Sort(keys, MojangAPI.VersionComparer.Instance.Reverse()));
     }
 
+    private static async ValueTask<Dictionary<string, string>?> LoadVersionDictionaryAsync()
+    {
+        CachedDownloadClient client = CachedDownloadClient.Instance;
+        HttpClient innerClient = client.InnerHttpClient;
+        innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Constants.UserAgent);
+        string? manifestString = await client.DownloadStringAsync(manifestListURL);
+        innerClient.DefaultRequestHeaders.Remove("User-Agent");
+        if (string.IsNullOrEmpty(manifestString))
+            return null;
+        XmlDocument manifestXML = new XmlDocument();
+        manifestXML.LoadXml(manifestString);
+        XmlNodeList? nodeList = manifestXML.SelectNodes("/metadata/versioning/versions/version");
+        if (nodeList is null)
+            return null;
+
+        Dictionary<string, string> result = new Dictionary<string, string>();
+        foreach (XmlNode node in nodeList)
+        {
+            string versionString = node.InnerText;
+            string[] versionSplits = versionString.Split('-');
+            string version = versionSplits[0];
+            for (int i = 1; i < versionSplits.Length; i++)
+            {
+                if (versionSplits[i][0] == 'R' || versionSplits[i] == "SNAPSHOT")
+                    break;
+                version += "-" + versionSplits[i];
+            }
+            if (result.ContainsKey(version))
+                continue;
+            result.Add(version, versionString);
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc cref="GetBuildNumberAsync(string, CancellationToken)"/>
+    public static ValueTask<int> GetBuildNumberAsync(string version)
+        => GetBuildNumberAsync(version, CancellationToken.None);
+
+    /// <summary>
+    /// 取得與指定的 Minecraft 版本相關聯的 Spigot 組建編號
+    /// </summary>
+    /// <param name="version">要查詢的 Minecraft 版本</param>
+    /// <param name="token">用於控制非同步操作是否取消的 <see cref="CancellationToken"/> 結構</param>
+    /// <returns>與對應的 Minecraft 相關聯的組建標號，如果沒找到的話則會傳回 <see langword="-1"/></returns>
+    public static async ValueTask<int> GetBuildNumberAsync(string version, CancellationToken token)
+    {
+        ReadOnlyDictionaryKeyGroup<string, string> keyGroup = await _versionDictKeyGroupLazy.Value.ConfigureAwait(continueOnCapturedContext: false);
+        if (!keyGroup.Dictionary.TryGetValue(version, out string? result) || result is null || result.Length <= 0)
+            return -1;
+        try
+        {
+            return await GetBuildNumberCoreAsync(string.Format(manifestListURL2, result), token);
+        }
+        catch (Exception)
+        {
+        }
+        return -1;
+    }
+
+    private static async ValueTask<int> GetBuildNumberCoreAsync(string url, CancellationToken token)
+    {
+        string manifestString;
+        using (HttpClient client = new HttpClient())
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
+#if NET8_0_OR_GREATER
+            manifestString = await client.GetStringAsync(url, token);
+#else
+            manifestString = await client.GetStringAsync(url);
+            if (token.IsCancellationRequested)
+                return -1;
+#endif
+        }
+        if (string.IsNullOrEmpty(manifestString))
+            return -1;
+
+        XmlDocument manifestXML = new XmlDocument();
+        manifestXML.LoadXml(manifestString);
+        string? buildNumber = manifestXML.SelectSingleNode("/metadata/versioning/snapshot/buildNumber")?.InnerText;
+        if (!string.IsNullOrEmpty(buildNumber) && int.TryParse(buildNumber, out int result))
+            return result;
+        return -1;
+    }
 }

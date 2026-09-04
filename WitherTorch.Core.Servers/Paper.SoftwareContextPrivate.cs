@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
@@ -10,77 +10,76 @@ using WitherTorch.Core.Servers.Utils;
 using WitherTorch.Core.Software;
 using WitherTorch.Core.Utils;
 
-namespace WitherTorch.Core.Servers
+namespace WitherTorch.Core.Servers;
+
+partial class Paper
 {
-    partial class Paper
+    private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+
+    /// <summary>
+    /// 取得與 <see cref="Paper"/> 相關聯的軟體上下文
+    /// </summary>
+    public static ISoftwareContext Software => _software;
+
+    private sealed class SoftwareContextPrivate : SoftwareContextBase<Paper>
     {
-        private static readonly SoftwareContextPrivate _software = new SoftwareContextPrivate();
+        private const string ManifestListURL = "https://fill.papermc.io/v3/projects/paper";
 
-        /// <summary>
-        /// 取得與 <see cref="Paper"/> 相關聯的軟體上下文
-        /// </summary>
-        public static ISoftwareContext Software => _software;
+        private readonly Lazy<Task<IReadOnlyList<string>>> _versionsLazy = new 
+            (LoadVersionListAsync, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        private sealed class SoftwareContextPrivate : SoftwareContextBase<Paper>
+        public SoftwareContextPrivate() : base(SoftwareId) { }
+
+        public override Task<IReadOnlyList<string>> GetSoftwareVersionsAsync() => _versionsLazy.Value;
+
+        public override Paper? CreateServerInstance(string serverDirectory) => new Paper(serverDirectory);
+
+        private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
         {
-            private const string ManifestListURL = "https://fill.papermc.io/v3/projects/paper";
-
-            private readonly Lazy<Task<IReadOnlyList<string>>> _versionsLazy = new 
-                (LoadVersionListAsync, LazyThreadSafetyMode.ExecutionAndPublication);
-
-            public SoftwareContextPrivate() : base(SoftwareId) { }
-
-            public override Task<IReadOnlyList<string>> GetSoftwareVersionsAsync() => _versionsLazy.Value;
-
-            public override Paper? CreateServerInstance(string serverDirectory) => new Paper(serverDirectory);
-
-            private static async Task<IReadOnlyList<string>> LoadVersionListAsync()
+            try
             {
-                try
-                {
-                    return await LoadVersionListCoreAsync() ?? Array.Empty<string>();
-                }
-                catch (Exception)
-                {
-                }
-                return Array.Empty<string>();
+                return await LoadVersionListCoreAsync() ?? Array.Empty<string>();
             }
-
-            private static async Task<IReadOnlyList<string>?> LoadVersionListCoreAsync()
+            catch (Exception)
             {
-                CachedDownloadClient client = CachedDownloadClient.Instance;
-                HttpClient innerClient = client.InnerHttpClient;
-                innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", UserAgentForPaperV3Api);
-                string? manifestString = await client.DownloadStringAsync(ManifestListURL);
-                innerClient.DefaultRequestHeaders.Remove("User-Agent");
+            }
+            return Array.Empty<string>();
+        }
 
-                if (manifestString is null || manifestString.Length <= 0)
-                    return null;
-                JsonObject? jsonObject = JsonNode.Parse(manifestString) as JsonObject;
-                if (jsonObject is null || !jsonObject.TryGetPropertyValue("versions", out JsonNode? node))
-                    return null;
-                jsonObject = node as JsonObject;
-                if (jsonObject is null)
-                    return null;
-                List<string> versionList = new List<string>();
-                foreach (KeyValuePair<string, JsonNode?> versionGroupNodePair in jsonObject)
+        private static async Task<IReadOnlyList<string>?> LoadVersionListCoreAsync()
+        {
+            CachedDownloadClient client = CachedDownloadClient.Instance;
+            HttpClient innerClient = client.InnerHttpClient;
+            innerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", UserAgentForPaperV3Api);
+            string? manifestString = await client.DownloadStringAsync(ManifestListURL);
+            innerClient.DefaultRequestHeaders.Remove("User-Agent");
+
+            if (manifestString is null || manifestString.Length <= 0)
+                return null;
+            JsonObject? jsonObject = JsonNode.Parse(manifestString) as JsonObject;
+            if (jsonObject is null || !jsonObject.TryGetPropertyValue("versions", out JsonNode? node))
+                return null;
+            jsonObject = node as JsonObject;
+            if (jsonObject is null)
+                return null;
+            List<string> versionList = new List<string>();
+            foreach (KeyValuePair<string, JsonNode?> versionGroupNodePair in jsonObject)
+            {
+                if (versionGroupNodePair.Value is not JsonArray versionGroupArrayNode)
+                    continue;
+                foreach (JsonNode? versionNode in versionGroupArrayNode)
                 {
-                    if (versionGroupNodePair.Value is not JsonArray versionGroupArrayNode)
+                    if (versionNode is not JsonValue versionValueNode || versionValueNode.GetValueKind() != JsonValueKind.String)
                         continue;
-                    foreach (JsonNode? versionNode in versionGroupArrayNode)
-                    {
-                        if (versionNode is not JsonValue versionValueNode || versionValueNode.GetValueKind() != JsonValueKind.String)
-                            continue;
-                        versionList.Add(versionValueNode.GetValue<string>());
-                    }
+                    versionList.Add(versionValueNode.GetValue<string>());
                 }
-                if (versionList.Count <= 0)
-                    return Array.Empty<string>();
-                string[] result = versionList.ToArray();
-                Array.Sort(result, MojangAPI.VersionComparer.Instance);
-                Array.Reverse(result);
-                return result;
             }
+            if (versionList.Count <= 0)
+                return Array.Empty<string>();
+            string[] result = versionList.ToArray();
+            Array.Sort(result, MojangAPI.VersionComparer.Instance);
+            Array.Reverse(result);
+            return result;
         }
     }
 }
