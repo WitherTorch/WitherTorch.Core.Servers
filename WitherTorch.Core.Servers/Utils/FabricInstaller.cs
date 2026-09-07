@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -19,27 +20,30 @@ internal static class FabricInstaller
     private const string ManifestListURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml";
     private const string DownloadURL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{0}/fabric-installer-{0}.jar";
 
-    private static readonly string _installerDirectoryPath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, WTServer.FabricInstallerPath));
-    private static readonly string _installerFilePath = Path.GetFullPath(Path.Combine(_installerDirectoryPath, "./fabric-installer.jar"));
-    private static readonly string _installerVersionDataPath = Path.GetFullPath(Path.Combine(_installerDirectoryPath, "./fabric-installer.version"));
+    private static readonly ConcurrentDictionary<string, string> _installerFilePathDict = new (), _installerVersionDataPathDict = new ();
 
-    private static async ValueTask<string?> CheckUpdateAsync(CancellationToken token)
+    private static string GetInstallerFilePath(string directoryPath)
+        => _installerFilePathDict.GetOrAdd(directoryPath, static path => Path.GetFullPath(Path.Combine(path, "./fabric-installer.jar")));
+
+    private static string GetInstallerVersionDataPath(string directoryPath)
+        => _installerVersionDataPathDict.GetOrAdd(directoryPath, static path => Path.GetFullPath(Path.Combine(path, "./fabric-installer.version")));
+
+    private static async ValueTask<string?> CheckUpdateAsync(string directoryPath, CancellationToken cancellationToken)
     {
         string? currentVersion = null;
-        string directoryPath = _installerDirectoryPath;
         if (Directory.Exists(directoryPath))
         {
-            string versionDataPath = _installerVersionDataPath;
-            if (File.Exists(versionDataPath) && File.Exists(_installerFilePath))
+            string versionDataPath = GetInstallerVersionDataPath(directoryPath);
+            if (File.Exists(versionDataPath) && File.Exists(GetInstallerFilePath(directoryPath)))
             {
                 using StreamReader reader = new StreamReader(versionDataPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
                 string? line
 #if NET8_0_OR_GREATER
-                    = await reader.ReadLineAsync(token).ConfigureAwait(continueOnCapturedContext: false);
+                    = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 #else
                     = await reader.ReadLineAsync().ConfigureAwait(continueOnCapturedContext: false);
 #endif
-                if (token.IsCancellationRequested)
+                if (cancellationToken.IsCancellationRequested)
                     return null;
                 currentVersion = line;
             }
@@ -63,22 +67,22 @@ internal static class FabricInstaller
         }
     }
 
-    private static async ValueTask<bool> UpdateAsync(InstallTask task, string installerVersion, CancellationToken token)
+    private static async ValueTask<bool> UpdateAsync(InstallTask task, string directoryPath, string installerVersion, CancellationToken cancellationToken)
     {
         using WebClient2 client = new WebClient2();
-        using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client, token);
+        using InstallTaskWatcher<bool> watcher = new InstallTaskWatcher<bool>(task, client, cancellationToken);
 
         client.DefaultRequestHeaders.Add("User-Agent", Constants.UserAgent);
         client.DownloadProgressChanged += UpdateAsync_DownloadProgressChanged;
         client.DownloadFileCompleted += UpdateAsync_DownloadFileCompleted;
-        client.DownloadFileAsync(new Uri(string.Format(DownloadURL, installerVersion)), _installerFilePath, watcher);
-        if (!await watcher.WaitUtilFinishedAsync() || token.IsCancellationRequested)
+        client.DownloadFileAsync(new Uri(string.Format(DownloadURL, installerVersion)), GetInstallerFilePath(directoryPath), watcher);
+        if (!await watcher.WaitUtilFinishedAsync() || cancellationToken.IsCancellationRequested)
             return false;
 
-        using StreamWriter writer = new StreamWriter(_installerVersionDataPath, append: false, encoding: Encoding.UTF8);
+        using StreamWriter writer = new StreamWriter(GetInstallerVersionDataPath(directoryPath), append: false, encoding: Encoding.UTF8);
         await writer.WriteLineAsync(installerVersion).ConfigureAwait(continueOnCapturedContext: false);
 #if NET8_0_OR_GREATER
-        await writer.FlushAsync(token).ConfigureAwait(continueOnCapturedContext: false);
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 #else
         await writer.FlushAsync().ConfigureAwait(continueOnCapturedContext: false);
 #endif
@@ -107,44 +111,46 @@ internal static class FabricInstaller
         watcher.MarkAsFinished(!e.Cancelled && e.Error is null);
     }
 
-    public static async ValueTask<bool> InstallAsync(InstallTask task, string minecraftVersion, string fabricLoaderVersion, CancellationToken token)
+    public static async ValueTask<bool> InstallAsync(InstallTask task, string minecraftVersion, string fabricLoaderVersion, CancellationToken cancellationToken)
     {
-        if (token.IsCancellationRequested)
+        if (cancellationToken.IsCancellationRequested)
             return false;
         FabricInstallerStatus status = new FabricInstallerStatus(SpigotBuildToolsStatus.ToolState.Initialize, 0);
         task.ChangeStatus(status);
-        string? newInstallerVersion = await CheckUpdateAsync(token);
+
+        string directoryPath = WTServer.FabricInstallerPath;
+        string? newInstallerVersion = await CheckUpdateAsync(directoryPath, cancellationToken);
         if (newInstallerVersion is not null)
         {
             status.State = SpigotBuildToolsStatus.ToolState.Update;
             status.Percentage = 0;
-            if (!await UpdateAsync(task, newInstallerVersion, token))
+            if (!await UpdateAsync(task, directoryPath, newInstallerVersion, cancellationToken))
                 return false;
             status.Percentage = 100;
         }
-        else if (token.IsCancellationRequested)
+        else if (cancellationToken.IsCancellationRequested)
             return false;
         task.ChangePercentage(50);
         task.OnStatusChanged();
-        if (!await RunInstallerAsync(task, status, minecraftVersion, fabricLoaderVersion, token))
+        if (!await RunInstallerAsync(task, status, directoryPath, minecraftVersion, fabricLoaderVersion, cancellationToken))
             return false;
         task.ChangePercentage(100);
         return true;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ValueTask<bool> RunInstallerAsync(InstallTask task, FabricInstallerStatus status, string minecraftVersion, string fabricLoaderVersion,
+    private static ValueTask<bool> RunInstallerAsync(InstallTask task, FabricInstallerStatus status, string directoryPath, string minecraftVersion, string fabricLoaderVersion,
         CancellationToken token)
     {
         status.State = SpigotBuildToolsStatus.ToolState.Build;
-        return ProcessHelper.RunProcessAsync(task, status, BuildInstallerStartInfo(task, minecraftVersion, fabricLoaderVersion), token);
+        return ProcessHelper.RunProcessAsync(task, status, BuildInstallerStartInfo(task, directoryPath, minecraftVersion, fabricLoaderVersion), token);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string minecraftVersion, string fabricLoaderVersion)
+    private static LocalProcessStartInfo BuildInstallerStartInfo(InstallTask task, string directoryPath, string minecraftVersion, string fabricLoaderVersion)
         => WTServer.InstallerProcessStartInfoFactory.Invoke(
-            task: task, 
+            task: task,
             arguments: string.Format("-Xms512M -Dsun.stdout.encoding=UTF8 -Dsun.stderr.encoding=UTF8 -jar \"{0}\" server -mcversion {1} -loader {2} -dir \"{3}\" -downloadMinecraft",
-                _installerFilePath, minecraftVersion, fabricLoaderVersion, task.Owner.ServerDirectory),
-            workingDirectory: _installerDirectoryPath);
+                GetInstallerFilePath(directoryPath), minecraftVersion, fabricLoaderVersion, task.Owner.ServerDirectory),
+            workingDirectory: directoryPath);
 }

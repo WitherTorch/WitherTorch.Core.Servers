@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,24 +40,10 @@ public static class WTServer
     /// </summary>
     public static string SpigotBuildToolsPath
     {
-        get
-        {
-            return _spigotBuildToolsPath;
-        }
-        set
-        {
-            _spigotBuildToolsPath = value;
-            try
-            {
-                if (!System.IO.Directory.Exists(_spigotBuildToolsPath))
-                {
-                    System.IO.Directory.CreateDirectory(_spigotBuildToolsPath);
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _spigotBuildToolsPath;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set => _spigotBuildToolsPath = value;
     }
 
     /// <summary>
@@ -64,24 +51,10 @@ public static class WTServer
     /// </summary>
     public static string FabricInstallerPath
     {
-        get
-        {
-            return _fabricInstallerPath;
-        }
-        set
-        {
-            _fabricInstallerPath = value;
-            try
-            {
-                if (!System.IO.Directory.Exists(value))
-                {
-                    System.IO.Directory.CreateDirectory(value);
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _fabricInstallerPath; 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set => _fabricInstallerPath = value;
     }
 
     /// <summary>
@@ -89,24 +62,10 @@ public static class WTServer
     /// </summary>
     public static string QuiltInstallerPath
     {
-        get
-        {
-            return _quiltInstallerPath;
-        }
-        set
-        {
-            _quiltInstallerPath = value;
-            try
-            {
-                if (!System.IO.Directory.Exists(value))
-                {
-                    System.IO.Directory.CreateDirectory(value);
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _quiltInstallerPath; 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set => _quiltInstallerPath = value;
     }
 
     /// <summary>
