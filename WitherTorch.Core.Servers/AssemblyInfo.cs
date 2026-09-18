@@ -10,7 +10,7 @@ using System.Runtime.CompilerServices;
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 [assembly: AssemblyVersion("1.8.4.0")]
-[assembly: AssemblyFileVersion("1.8.4.11")]
+[assembly: AssemblyFileVersion("1.8.4.12")]
 
 //Used for NGen pre-linking
 [assembly: Dependency("System.Text.Json", LoadHint.Always)]
