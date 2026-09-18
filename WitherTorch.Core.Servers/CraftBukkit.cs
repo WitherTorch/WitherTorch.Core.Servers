@@ -8,11 +8,14 @@ using WitherTorch.Core.Servers.Utils;
 namespace WitherTorch.Core.Servers;
 
 /// <summary>
-/// Spigot 伺服器
+/// CraftBukkit 伺服器
 /// </summary>
 public sealed partial class CraftBukkit : SpigotServerBase
 {
-    private const string SoftwareId = "craftbukkit";
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "craftbukkit";
 
     private CraftBukkit(string serverDirectory) : base(serverDirectory) { }
 

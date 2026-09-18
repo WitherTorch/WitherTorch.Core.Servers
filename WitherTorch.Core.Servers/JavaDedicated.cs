@@ -16,8 +16,11 @@ namespace WitherTorch.Core.Servers;
 /// Java 原版伺服器
 /// </summary>
 public partial class JavaDedicated : JavaDedicatedServerBase
-{
-    private const string SoftwareId = "javaDedicated";
+{   
+    /// <summary>
+     /// 此伺服器軟體的軟體ID
+     /// </summary>
+    public const string SoftwareId = "javaDedicated";
 
     private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
 

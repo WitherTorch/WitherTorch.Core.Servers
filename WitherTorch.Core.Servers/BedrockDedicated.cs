@@ -23,7 +23,11 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public sealed partial class BedrockDedicated : LocalServerBase
 {
-    private const string SoftwareId = "bedrockDedicated";
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "bedrockDedicated";
+
     private const int DecompressPercentageBase = 50;
 
     private string _version = string.Empty;

@@ -15,8 +15,12 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public sealed partial class PowerNukkit : JavaServerBase
 {
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "powerNukkit";
+
     private const string DownloadURL = "https://repo1.maven.org/maven2/org/powernukkit/powernukkit/{0}/powernukkit-{0}-shaded.jar";
-    private const string SoftwareId = "powerNukkit";
 
     private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
     private string _version = string.Empty;

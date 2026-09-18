@@ -16,7 +16,10 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public partial class Fabric : JavaDedicatedServerBase, IModLoaderServer
 {
-    private const string SoftwareId = "fabric";
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "fabric";
 
     private string _minecraftVersion = string.Empty;
     private string _fabricLoaderVersion = string.Empty;

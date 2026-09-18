@@ -16,7 +16,10 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public sealed partial class Quilt : JavaDedicatedServerBase, IModLoaderServer
 {
-    private const string SoftwareId = "quilt";
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "quilt";
 
     private string _minecraftVersion = string.Empty;
     private string _quiltLoaderVersion = string.Empty;

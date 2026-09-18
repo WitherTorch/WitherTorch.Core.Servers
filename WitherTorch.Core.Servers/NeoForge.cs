@@ -18,9 +18,12 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public partial class NeoForge : JavaDedicatedServerBase, IModLoaderServer
 {
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "neoforge";
     private const string LegacyDownloadURL = "{0}/net/neoforged/forge/{1}/forge-{1}-installer.jar";
     private const string DownloadURL = "{0}/net/neoforged/neoforge/{1}/neoforge-{1}-installer.jar";
-    private const string SoftwareId = "neoforge";
 
     private readonly Lazy<IPropertyFile[]> propertyFilesLazy;
     private string _minecraftVersion = string.Empty;

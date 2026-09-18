@@ -19,9 +19,12 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public sealed partial class Paper : JavaDedicatedServerBase
 {
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "paper";
     private const string BuildVersionManifestListURL = "https://fill.papermc.io/v3/projects/paper/versions/{0}";
     private const string BuildVersionManifestListURL2 = "https://fill.papermc.io/v3/projects/paper/versions/{0}/builds/{1}";
-    private const string SoftwareId = "paper";
 
     private static readonly string UserAgentForPaperV3Api = $"withertorch/{Assembly.GetCallingAssembly().GetName().Version} (new1271@outlook.com)";
     private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_19 = new (

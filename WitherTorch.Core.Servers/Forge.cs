@@ -19,8 +19,12 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public partial class Forge : JavaDedicatedServerBase, IModLoaderServer
 {
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "forge";
+
     private const string DownloadURLPrefix = "{0}/net/minecraftforge/forge/";
-    private const string SoftwareId = "forge";
 
     private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_3_2 = new(
         async () => (await MojangAPI.GetVersionDictionaryAsync()).TryGetValue("1.3.2", out MojangAPI.VersionInfo? result) ? result : null,

@@ -13,7 +13,10 @@ namespace WitherTorch.Core.Servers;
 /// </summary>
 public sealed partial class Spigot : SpigotServerBase
 {
-    private const string SoftwareId = "spigot";
+    /// <summary>
+    /// 此伺服器軟體的軟體ID
+    /// </summary>
+    public const string SoftwareId = "spigot";
 
     /// <summary>
     /// 取得伺服器的 spigot.yml 設定檔案
