@@ -27,7 +27,7 @@ public sealed partial class Paper : JavaDedicatedServerBase
     private const string BuildVersionManifestListURL2 = "https://fill.papermc.io/v3/projects/paper/versions/{0}/builds/{1}";
 
     private static readonly string UserAgentForPaperV3Api = $"withertorch/{Assembly.GetCallingAssembly().GetName().Version} (new1271@outlook.com)";
-    private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_19 = new (
+    private static readonly Lazy<Task<MojangAPI.VersionInfo?>> mc1_19 = new(
         async () => (await MojangAPI.GetVersionDictionaryAsync()).TryGetValue("1.19", out MojangAPI.VersionInfo? result) ? result : null,
         LazyThreadSafetyMode.PublicationOnly);
     private readonly Lazy<IPropertyFile[]> _propertyFilesLazy;
@@ -138,15 +138,9 @@ public sealed partial class Paper : JavaDedicatedServerBase
 #else
             = JsonNode.Parse(await client.GetStringAsync(manifestURL)) as JsonObject;
 #endif
-        if (token.IsCancellationRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("builds", out JsonNode? node))
+        if (token.IsCancellationRequested || jsonObject is null || !jsonObject.TryGetPropertyValue("builds", out JsonNode? node) || 
+            node is not JsonArray jsonArray || !TryGetBuildNumber(jsonArray, out int build))
             return false;
-        JsonArray? jsonArray = node as JsonArray;
-        if (jsonArray is null)
-            return false;
-        node = jsonArray.Last();
-        if (node is null || !(node is JsonValue _value && _value.GetValueKind() == JsonValueKind.Number))
-            return false;
-        int build = _value.GetValue<int>();
         manifestURL = string.Format(BuildVersionManifestListURL2, version, build.ToString());
 #if NET8_0_OR_GREATER
         jsonObject = JsonNode.Parse(await client.GetStringAsync(manifestURL, token)) as JsonObject;
@@ -159,7 +153,7 @@ public sealed partial class Paper : JavaDedicatedServerBase
         if (jsonObject is null || !jsonObject.TryGetPropertyValue("server:default", out node))
             return false;
         jsonObject = node as JsonObject;
-        if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node) || 
+        if (jsonObject is null || !jsonObject.TryGetPropertyValue("url", out node) ||
             node is not JsonValue addressNode || addressNode.GetValueKind() != JsonValueKind.String)
             return false;
         byte[]? sha256 = null;
@@ -184,6 +178,34 @@ public sealed partial class Paper : JavaDedicatedServerBase
         Thread.MemoryBarrier();
         OnServerVersionChanged();
         return true;
+
+        static bool TryGetBuildNumber(JsonArray jsonArray, out int build)
+        {
+            JsonNode? firstNode = jsonArray.FirstOrDefault(), lastNode = jsonArray.FirstOrDefault();
+            if (TryGetBuildNumberCore(firstNode, out int firstBuild))
+            {
+                if (TryGetBuildNumberCore(lastNode, out int lastBuild))
+                    build = Math.Max(firstBuild, lastBuild);
+                else
+                    build = firstBuild;
+                return true;
+            }
+            else
+            {
+                return TryGetBuildNumberCore(lastNode, out build);
+            }
+        }
+
+        static bool TryGetBuildNumberCore(JsonNode? jsonNode, out int build)
+        {
+            if (jsonNode is null || !(jsonNode is JsonValue valueNode && jsonNode.GetValueKind() == JsonValueKind.Number))
+            {
+                build = -1;
+                return false;
+            }
+            build = valueNode.GetValue<int>();
+            return true;
+        }
     }
 
     /// <inheritdoc/>
